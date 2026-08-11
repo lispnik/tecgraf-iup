@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "iup.h"
+#include "iupcontrols.h"
 
 //#define TIMER
 #ifdef TIMER

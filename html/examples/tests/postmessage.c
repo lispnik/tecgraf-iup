@@ -29,7 +29,7 @@ static int postmessage_cb(Ihandle *ih, char* s, int i, double d)
 
 static int timer_cb(Ihandle *ih)
 {
-  IupPostMessage(button, NULL, 0, 0);
+  IupPostMessage(button, NULL, 0, 0, NULL);
 //  IupPostMessage(button, "foo", (int)(intptr_t)ih, (double)(intptr_t)ih);
   return IUP_DEFAULT;
 }

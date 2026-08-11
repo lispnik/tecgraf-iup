@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <string.h>
 #include <iup.h>
 
 int bt_book_cb(Ihandle *self)
