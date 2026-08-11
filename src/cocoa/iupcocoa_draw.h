@@ -19,6 +19,8 @@ struct _IdrawCanvas
 	   NSGraphicsContext (drawing requested outside a draw cycle, e.g. during IupMap).
 	   iupdrvDrawKillCanvas must release it. */
 	bool ownsContext;
+	/* True while a clip is active, i.e. we have pushed exactly one graphics state for it. */
+	bool clipPushed;
 /*
 	int draw_focus;
 	int focus_x1;

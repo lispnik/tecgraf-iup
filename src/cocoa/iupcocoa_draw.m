@@ -144,6 +144,14 @@ IdrawCanvas* iupdrvDrawCreateCanvas(Ihandle* ih)
 
 void iupdrvDrawKillCanvas(IdrawCanvas* dc)
 {
+	/* The context is usually the view's persistent backing store, so a clip left pushed here
+	   would leak a graphics state that nothing ever pops. */
+	if(dc->clipPushed && NULL != dc->cgContext)
+	{
+		CGContextRestoreGState(dc->cgContext);
+		dc->clipPushed = false;
+	}
+
 	/* Release the scratch bitmap if we created one (see iupdrvDrawCreateCanvas). */
 	if(dc->ownsContext && NULL != dc->cgContext)
 	{
@@ -320,38 +328,43 @@ IUP_SDK_API void iupdrvDrawGetClipRect(IdrawCanvas* dc, int *x1, int *y1, int *x
 
 void iupdrvDrawSetClipRect(IdrawCanvas* dc, int x1, int y1, int x2, int y2)
 {
-	// This gets called a lot, so print only once.
-	static bool gave_warning = false;
-	if(!gave_warning)
-	{
-		NSLog(@"iupdrvDrawSetClipRect not tested");
-		gave_warning = true;
-	}
-#if 1
 	CGContextRef cg_context = dc->cgContext;
 
-	CGContextSaveGState(cg_context);
+	/* Each call must REPLACE the clip, not narrow it. CGContextClipToRect intersects with the
+	   current clip, and this used to push a graphics state every time, so a caller that sets a
+	   clip per item -- IupMatrix does, once per cell -- ended up with the intersection of all of
+	   them (empty after a couple of cells) and an ever-growing gstate stack. Drop the previous
+	   clip first so each call starts from the unclipped state. */
+	if(dc->clipPushed)
+	{
+		CGContextRestoreGState(cg_context);
+		dc->clipPushed = false;
+	}
 
-	CGRect clip_rect = CGRectMake(x1, y1, x2-x1, y2-y1);
-	
-	CGContextClipToRect(cg_context, clip_rect);
-#endif
+	CGContextSaveGState(cg_context);
+	dc->clipPushed = true;
+
+	/* IUP rectangles are inclusive of both corners. */
+	CGContextClipToRect(cg_context, CGRectMake(x1, y1, x2 - x1 + 1, y2 - y1 + 1));
+
 	dc->clip_x1 = (CGFloat)x1;
 	dc->clip_y1 = (CGFloat)y1;
 	dc->clip_x2 = (CGFloat)x2;
 	dc->clip_y2 = (CGFloat)y2;
 }
 
-// This is supposed to remove the clipping.
+/* Removes the clipping set by iupdrvDrawSetClipRect. Safe to call when no clip is active. */
 void iupdrvDrawResetClip(IdrawCanvas* dc)
 {
-	CGContextRef cg_context = dc->cgContext;
-
-	// Assumption1: The user activated clip and we saved (pushed) the GState.
-	// Assumption2: No other API can save a GState without (popping) Restoring (balancing) it before returning.
-	// QED: When we pop here, we are popping the activated clip, thus removing it.
-	CGContextRestoreGState(cg_context);
-
+	if(dc->clipPushed)
+	{
+		CGContextRestoreGState(dc->cgContext);
+		dc->clipPushed = false;
+	}
+	dc->clip_x1 = 0.0;
+	dc->clip_y1 = 0.0;
+	dc->clip_x2 = dc->w;
+	dc->clip_y2 = dc->h;
 }
 
 void iupdrvDrawParentBackground(IdrawCanvas* dc)
