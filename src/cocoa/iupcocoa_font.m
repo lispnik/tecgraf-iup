@@ -43,6 +43,28 @@
 // Even though I believe Apple caches NSFont, because we have our own additional object wrapper with additional properties, we might as well do our own caching.
 static NSMutableDictionary<NSString*, IupCocoaFont*>* s_mapOfFonts = nil;
 // This is for easy access to our system font since it is used so often.
+/* IUP's "char width" is the AVERAGE character width -- Windows uses tmAveCharWidth and GTK uses
+   pango_font_metrics_get_approximate_char_width. -boundingRectForFont returns the union of every
+   glyph's bounding box instead, which for a modern system font is roughly five times larger, and
+   IUP multiplies it straight into layout: SIZE is expressed in quarter-character units, so a
+   label declared "SIZE=70x" asked for 700px instead of ~120 (see the simple_paint status bar,
+   which forced its dialog's canvas to 1361px inside a 735px window). Average the advance over a
+   representative alphabet instead. */
+static int cocoaFontComputeAverageCharWidth(NSFont* ns_font)
+{
+	static NSString* const k_sample =
+		@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	NSDictionary* attributes = [NSDictionary dictionaryWithObject:ns_font forKey:NSFontAttributeName];
+	NSSize sample_size = [k_sample sizeWithAttributes:attributes];
+	int char_width = iupROUND(sample_size.width / (CGFloat)[k_sample length]);
+	if(char_width < 1)
+	{
+		char_width = 1;
+	}
+	return char_width;
+}
+
+
 static IupCocoaFont* s_systemFont = nil;
 static IupCocoaFont* s_labelFont = nil;
 #ifdef IUPCOCOA_USE_SEPARATE_DEFAULT_FONT
@@ -89,10 +111,7 @@ static IupCocoaFont* cocoaCreateIupCocoaFontFromNSFont(NSFont* ns_font)
 
 	// https://developer.apple.com/library/content/documentation/Cocoa/Conceptual/TextLayout/Tasks/StringHeight.html#//apple_ref/doc/uid/20001809-CJBGBIBB
 	// defaultLineHeightForFont: 16
-	// boundingRectForFont: (width = 21.099609375, height = 17.6337890625)
-	NSRect rect = [ns_font boundingRectForFont];
-	int char_width = iupROUND(rect.size.width);
-	[the_font setCharWidth:char_width];
+	[the_font setCharWidth:cocoaFontComputeAverageCharWidth(ns_font)];
 
 
 	return the_font;
@@ -273,10 +292,7 @@ static IupCocoaFont* cocoaFindFont(const char* iup_font_name)
 	
 	// https://developer.apple.com/library/content/documentation/Cocoa/Conceptual/TextLayout/Tasks/StringHeight.html#//apple_ref/doc/uid/20001809-CJBGBIBB
 	// defaultLineHeightForFont: 16
-	// boundingRectForFont: (width = 21.099609375, height = 17.6337890625)
-	NSRect rect = [ns_font boundingRectForFont];
-	int char_width = iupROUND(rect.size.width);
-	[the_font setCharWidth:char_width];
+	[the_font setCharWidth:cocoaFontComputeAverageCharWidth(ns_font)];
 
 
 	return the_font;
@@ -533,8 +549,9 @@ IUP_SDK_API void iupdrvFontGetFontDim(const char* font, int *max_width, int *lin
 
 	NSFont* ns_font = [iup_font nativeFont];
 
-	/* charWidth/charHeight are the cached boundingRectForFont width and
-	   defaultLineHeightForFont, so this stays consistent with iupdrvFontGetCharSize. */
+	/* charWidth/charHeight are the cached average char width and defaultLineHeightForFont, so
+	   this stays consistent with iupdrvFontGetCharSize -- and with GTK, which likewise reports
+	   approximate_char_width as max_width here. */
 	if (max_width)   *max_width = [iup_font charWidth];
 	if (line_height) *line_height = [iup_font charHeight];
 
