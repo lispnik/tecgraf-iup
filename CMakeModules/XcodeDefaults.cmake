@@ -63,7 +63,10 @@ if(APPLE)
 	else()
 
 		# The generic "macosx" is used to trigger the "Latest" setting. The full SDK path which CMake has been trying to do actually breaks functionality in subtle ways.
-		set(CMAKE_OSX_SYSROOT macosx CACHE PATH "The product will be built against the headers and libraries located inside the indicated SDK." FORCE)
+		# Only the Xcode generator understands the "macosx" alias; other generators pass it straight to clang as -isysroot and fail to find any headers.
+		if(CMAKE_GENERATOR STREQUAL "Xcode")
+			set(CMAKE_OSX_SYSROOT macosx CACHE PATH "The product will be built against the headers and libraries located inside the indicated SDK." FORCE)
+		endif()
 
 		set_xcode_property(${_EXE_NAME} GCC_GENERATE_DEBUGGING_SYMBOLS[variant=Debug] YES)
 		set_xcode_property(${_EXE_NAME} GCC_GENERATE_DEBUGGING_SYMBOLS[variant=MinSizeRel] YES)
@@ -75,9 +78,15 @@ if(APPLE)
 		# Theoretically, the components of Blurrr could go back further (10.6), but this is unsupported as the support costs will make things more expensive,
 		# and future components don't promise to support back that far.
 		# Also understand that Apple changes/breaks/fixes things in every release. Particularly with OpenGL drivers, you must get the latest OS.
-		set_xcode_property(${_EXE_NAME} MACOSX_DEPLOYMENT_TARGET 10.9)		
+		# Was 10.9, but modern Xcode no longer ships libarclite, which ARC needs for old deployment
+		# targets. arm64 macOS starts at 11.0 anyway, so this costs nothing on Apple Silicon.
+		set_xcode_property(${_EXE_NAME} MACOSX_DEPLOYMENT_TARGET 11.0)
 
-		set_xcode_property(${_EXE_NAME} CODE_SIGN_ENTITLEMENTS "${PROJECT_BINARY_DIR}/${BLURRR_USER_PROJECT_NAME}.entitlements")
+		# BLURRR_USER_PROJECT_NAME is a leftover from the Blurrr project this file came from and is
+		# never set here, which yields a bogus "<builddir>/.entitlements" input and fails the build.
+		if(BLURRR_USER_PROJECT_NAME AND EXISTS "${PROJECT_BINARY_DIR}/${BLURRR_USER_PROJECT_NAME}.entitlements")
+			set_xcode_property(${_EXE_NAME} CODE_SIGN_ENTITLEMENTS "${PROJECT_BINARY_DIR}/${BLURRR_USER_PROJECT_NAME}.entitlements")
+		endif()
 
 		set_xcode_property(${_EXE_NAME} CFBundleIconFile icon.icns)
 
@@ -106,8 +115,12 @@ if(APPLE)
 	endif(IOS)
 
 	# Common to both
-	# Use Apple's recommended standard architectures
-	set_xcode_property(${_EXE_NAME} ARCHS "$(ARCHS_STANDARD)")
+	# Use Apple's recommended standard architectures, unless the caller asked for specific ones.
+	# On Apple Silicon $(ARCHS_STANDARD) is universal (arm64 + x86_64), which fails to link against
+	# single-architecture third-party libraries such as Homebrew's libcd.
+	if(NOT CMAKE_OSX_ARCHITECTURES)
+		set_xcode_property(${_EXE_NAME} ARCHS "$(ARCHS_STANDARD)")
+	endif()
 
 	set_xcode_property(${_EXE_NAME} GCC_OPTIMIZATION_LEVEL[variant=Debug] "0")
 	set_xcode_property(${_EXE_NAME} GCC_OPTIMIZATION_LEVEL[variant=MinSizeRel] "s")

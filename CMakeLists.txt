@@ -364,8 +364,9 @@ ELSEIF(WANTS_BUILD_SHARED_LIBRARY)
 		SET(IUPIMGLIB_C_FLAGS "${IUPIMGLIB_C_FLAGS} -fvisibility=hidden")
 		SET(IUPOLE_C_FLAGS "${IUPOLE_C_FLAGS} -fvisibility=hidden")
 		SET(IUPWEB_C_FLAGS "${IUPWEB_C_FLAGS} -fvisibility=hidden")
-		SET(IUPCD_C_FLAGS "${IUPCD_C_FLAGS} -fvisibility=hidden")
-		SET(IUPCONTROLS_C_FLAGS "${IUPCONTROLS_C_FLAGS} -fvisibility=hidden")
+		# NOTE: iupcd and iupcontrols have no export-attribute macro (there is no IUPCD_API or
+		# IUPCONTROLS_API, and iupdraw_cd.h/iup_cdutil.h/iupcontrols.h annotate nothing), so
+		# hiding visibility exports zero symbols and iupcontrols then fails to link against iupcd.
 		SET(IUPLUA_C_FLAGS "${IUPLUA_C_FLAGS} -fvisibility=hidden")
 		SET(IUPLUAWEB_C_FLAGS "${IUPLUAWEB_C_FLAGS} -fvisibility=hidden")
 
@@ -374,8 +375,7 @@ ELSEIF(WANTS_BUILD_SHARED_LIBRARY)
 		SET(IUPIMGLIB_C_FLAGS "${IUPIMGLIB_C_FLAGS} -fvisibility=hidden")
 		SET(IUPOLE_C_FLAGS "${IUPOLE_C_FLAGS} -fvisibility=hidden")
 		SET(IUPWEB_C_FLAGS "${IUPWEB_C_FLAGS} -fvisibility=hidden")
-		SET(IUPCD_C_FLAGS "${IUPCD_C_FLAGS} -fvisibility=hidden")
-		SET(IUPCONTROLS_C_FLAGS "${IUPCONTROLS_C_FLAGS} -fvisibility=hidden")
+		# See note above: iupcd and iupcontrols have no export-attribute macro.
 		SET(IUPLUAWEB_C_FLAGS "${IUPLUAWEB_C_FLAGS} -fvisibility=hidden")
 
 	ENDIF()
@@ -611,10 +611,12 @@ SET(IUPWEB_COMMON_SOURCE_FILES
 	${CMAKE_SOURCE_DIR}/srcweb/iup_webbrowser.c
 	${CMAKE_SOURCE_DIR}/srcweb/iup_webbrowser.h
 )
-SET(IUPCD_COMMON_SOURCE_FILES 
+SET(IUPCD_COMMON_SOURCE_FILES
 	${CMAKE_SOURCE_DIR}/srccd/iup_cd.c
 	${CMAKE_SOURCE_DIR}/srccd/iup_cdutil.c
 	${CMAKE_SOURCE_DIR}/srccd/iup_cdutil.h
+	# Listed by srccd/config.mak (tecmake) but was missing here; provides cdContextIupDraw().
+	${CMAKE_SOURCE_DIR}/srccd/iup_draw_cd.c
 )
 SET(IUPCONTROLS_COMMON_SOURCE_FILES 
 	${CMAKE_SOURCE_DIR}/srccontrols/iup_cells.c
@@ -1033,7 +1035,12 @@ ELSEIF(IUP_USE_COCOA)
 		${CMAKE_SOURCE_DIR}/src/cocoa/xib/Base.lproj/CanonicalWindowMenu.xib
 		${CMAKE_SOURCE_DIR}/src/cocoa/xib/Base.lproj/IupCocoaOutlineView.xib
 		${CMAKE_SOURCE_DIR}/src/cocoa/xib/Base.lproj/IupMainMenu.xib
-		${CMAKE_SOURCE_DIR}/src/cocoa/xib/Base.lproj/IupTextSpinner.xib	
+		${CMAKE_SOURCE_DIR}/src/cocoa/xib/Base.lproj/IupTextSpinner.xib
+		# These two exist in src/cocoa/xib but were missing from this list, so they were never
+		# compiled into the framework. The driver loads them at runtime and aborts when absent:
+		# iupcocoa_text.m:6241 (spinner without bindings) and iupcocoa_tree.m:4835 (tree toggle).
+		${CMAKE_SOURCE_DIR}/src/cocoa/xib/Base.lproj/IupTextSpinnerNoBindings.xib
+		${CMAKE_SOURCE_DIR}/src/cocoa/xib/Base.lproj/IupCocoaOutlineViewToggle.xib
 	)
 
 	LIST(APPEND IUP_SOURCE_FILES
