@@ -248,7 +248,7 @@ void IupConfigRecentUpdate(Ihandle* ih, const char* filename)
 	{
 		return;
 	}
-	NSString* ns_string = [NSString stringWithUTF8String:filename];
+	NSString* ns_string = iupCocoaStringFromCStr(filename);
 	NSURL* file_url = [NSURL fileURLWithPath:ns_string];
 	
 	NSDocumentController* document_controller = [NSDocumentController sharedDocumentController];

@@ -2871,7 +2871,7 @@ void iupdrvTreeAddNode(Ihandle* ih, int prev_id, int kind, const char* title, in
 	
 	IupCocoaTreeItem* tree_item_new = [[IupCocoaTreeItem alloc] init];
 	[tree_item_new setKind:kind];
-	NSString* ns_title = [NSString stringWithUTF8String:title];
+	NSString* ns_title = iupCocoaStringFromCStr(title);
 	[tree_item_new setTitle:ns_title];
 //	InodeHandle* inode_new = (InodeHandle*)calloc(1, sizeof(InodeHandle));
 	InodeHandle* inode_new = (InodeHandle*)tree_item_new; // NOTE: retain count is 1 from alloc. We are not going to retain it again.
@@ -3944,7 +3944,7 @@ static int cocoaTreeSetTitleAttrib(Ihandle* ih, int item_id, const char* value)
 		NSString* ns_title = @"";
 		if(value)
 		{
-			ns_title = [NSString stringWithUTF8String:value];
+			ns_title = iupCocoaStringFromCStr(value);
 		}
 		
 		IupCocoaTreeItem* tree_item = (IupCocoaTreeItem*)inode_handle;

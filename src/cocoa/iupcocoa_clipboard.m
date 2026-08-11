@@ -63,7 +63,7 @@ static int cocoaClipboardSetTextAttrib(Ihandle* ih, const char* value)
 	if(value)
 	{
 		// This will return nil if the string can't be converted.
-		ns_string = [NSString stringWithUTF8String:value];
+		ns_string = iupCocoaStringFromCStr(value);
 	}
 	else
 	{
@@ -175,7 +175,7 @@ static int cocoaClipboardSetAddFormatAttrib(Ihandle* ih, const char* value)
 		return 0;
 	}
 	
-	NSString* new_type = [NSString stringWithUTF8String:value];
+	NSString* new_type = iupCocoaStringFromCStr(value);
 	
 	IupClipboardState* iup_clipboard_state = ih->handle;
 	NSArray* new_array = [[iup_clipboard_state arrayOfTypes] arrayByAddingObject:new_type];

@@ -1329,7 +1329,7 @@ static void cocoaSourceDragProvideDataForTypeUser(Ihandle* ih, NSPasteboard* pas
 		return default_file_name;
 	}
 	
-	NSString* ret_string = [NSString stringWithUTF8String:file_buffer];
+	NSString* ret_string = iupCocoaStringFromCStr(file_buffer);
 	
 	return ret_string;
 //	return @"MyFile123.png";
@@ -1629,7 +1629,7 @@ static int cocoaTargetDropSetDropTypesAttrib(Ihandle* ih, const char* value)
 
 	if(NULL != value)
 	{
-		NSString* comma_separated_string = [NSString stringWithUTF8String:value];
+		NSString* comma_separated_string = iupCocoaStringFromCStr(value);
 		// The Windows version doesn't worry about extra white space, so I won't either.
 		NSArray* array_of_types = [comma_separated_string componentsSeparatedByString:@","];
 		
@@ -1776,7 +1776,7 @@ static int cocoaSourceDragSetDragTypesAttrib(Ihandle* ih, const char* value)
 	IupSourceDragAssociatedData* drag_drop_data = cocoaSourceDragGetAssociatedData(ih);
 	if(value)
 	{
-		NSString* comma_separated_string = [NSString stringWithUTF8String:value];
+		NSString* comma_separated_string = iupCocoaStringFromCStr(value);
 		// The Windows version doesn't worry about extra white space, so I won't either.
 		NSArray* array_of_types = [comma_separated_string componentsSeparatedByString:@","];
 		

@@ -1275,7 +1275,7 @@ static int cocoaTextSetValueAttrib(Ihandle* ih, const char* value)
 	}
 	else
 	{
-		ns_string = [NSString stringWithUTF8String:value];
+		ns_string = iupCocoaStringFromCStr(value);
 	}
 	
 	IupCocoaTextSubType sub_type = cocoaTextGetSubType(ih);
@@ -3061,11 +3061,11 @@ static NSMutableDictionary* cocoaTextParseCharacterFormat(Ihandle* ih, Ihandle* 
 		const char* mapped_name = iupFontGetMacName(format);
 		if(mapped_name)
 		{
-			font_family_name = [NSString stringWithUTF8String:mapped_name];
+			font_family_name = iupCocoaStringFromCStr(mapped_name);
 		}
 		else
 		{
-			font_family_name = [NSString stringWithUTF8String:format];
+			font_family_name = iupCocoaStringFromCStr(format);
 		}
 		
 //		target_font = [font_manager convertFont:target_font toFamily:font_family_name];
@@ -4009,7 +4009,7 @@ static int cocoaTextSetSelectedTextAttrib(Ihandle* ih, const char* value)
 			NSDictionary<NSAttributedStringKey, id>* text_storage_attributes = [[text_storage attributedSubstringFromRange:selected_range] attributesAtIndex:0 effectiveRange:NULL];
 			[attribute_dict addEntriesFromDictionary:text_storage_attributes];
 			
-			NSString* ns_insert_string = [NSString stringWithUTF8String:value];
+			NSString* ns_insert_string = iupCocoaStringFromCStr(value);
 			
 			NSAttributedString* attributed_insert_string = [[NSAttributedString alloc] initWithString:ns_insert_string attributes:attribute_dict];
 			[attributed_insert_string autorelease];
@@ -4046,7 +4046,7 @@ static int cocoaTextSetSelectedTextAttrib(Ihandle* ih, const char* value)
 				return 0;
 			}
 			
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			NSCAssert([field_editor isKindOfClass:[NSTextView class]], @"Expected that the field editor is a NSTextView");
 			[(NSTextView*)field_editor insertText:ns_string replacementRange:selected_range];
 			return 0;
@@ -4062,7 +4062,7 @@ static int cocoaTextSetSelectedTextAttrib(Ihandle* ih, const char* value)
 				return 0;
 			}
 			
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			NSCAssert([field_editor isKindOfClass:[NSTextView class]], @"Expected that the field editor is a NSTextView");
 			[(NSTextView*)field_editor insertText:ns_string replacementRange:selected_range];
 			return 0;
@@ -4982,7 +4982,7 @@ static int cocoaTextSetCueBannerAttrib(Ihandle *ih, const char *value)
 	}
 	else
 	{
-		ns_string = [NSString stringWithUTF8String:value];
+		ns_string = iupCocoaStringFromCStr(value);
 	}
 	
 	
@@ -5202,7 +5202,7 @@ static int cocoaTextSetAppendAttrib(Ihandle* ih, const char* value)
 	  }
 	  else
 	  {
-		  ns_append_string = [NSString stringWithUTF8String:value];
+		  ns_append_string = iupCocoaStringFromCStr(value);
 
 	  }
 	  
@@ -5272,7 +5272,7 @@ static int cocoaTextSetAppendAttrib(Ihandle* ih, const char* value)
 			  // I don't know if the old string is attributed or not, so I need to assume it is
 			  NSMutableAttributedString* old_string_value = [[[text_field attributedStringValue] mutableCopy] autorelease];
 			  
-			  NSString* ns_append_string = [NSString stringWithUTF8String:value];
+			  NSString* ns_append_string = iupCocoaStringFromCStr(value);
 			  
 			  
 			  NSAttributedString* attributed_append_string = [[NSAttributedString alloc] initWithString:ns_append_string attributes:[iup_font attributeDictionary]];
@@ -5360,7 +5360,7 @@ static int cocoaTextSetInsertAttrib(Ihandle* ih, const char* value)
 			NSDictionary<NSAttributedStringKey, id>* text_storage_attributes = [[text_storage attributedSubstringFromRange:NSMakeRange(insertion_point.location, 1)] attributesAtIndex:0 effectiveRange:NULL];
 			[attribute_dict addEntriesFromDictionary:text_storage_attributes];
 			
-			NSString* ns_insert_string = [NSString stringWithUTF8String:value];
+			NSString* ns_insert_string = iupCocoaStringFromCStr(value);
 			
 			NSAttributedString* attributed_insert_string = [[NSAttributedString alloc] initWithString:ns_insert_string attributes:attribute_dict];
 			[attributed_insert_string autorelease];
@@ -5404,7 +5404,7 @@ static int cocoaTextSetInsertAttrib(Ihandle* ih, const char* value)
 				return cocoaTextSetSelectedTextAttrib(ih, value);
 			}
 			
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			NSCAssert([field_editor isKindOfClass:[NSTextView class]], @"Expected that the field editor is a NSTextView");
 			[(NSTextView*)field_editor insertText:ns_string replacementRange:selected_range];
 			return 0;

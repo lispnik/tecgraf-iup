@@ -41,7 +41,7 @@ static void macFileDlgGetFolder(Ihandle *ih)
   [op setCanChooseFiles:NO];
   [op setCanChooseDirectories:YES];
   [op setPrompt:@"Choose folder"];
-  [op setTitle: [NSString stringWithUTF8String:iupAttribGet(ih, "TITLE")]];
+  [op setTitle: iupCocoaStringFromCStr(iupAttribGet(ih, "TITLE"))];
 
   if([op runModal] == NSOKButton) 
   {           
@@ -126,7 +126,7 @@ static void macFileDlgGetFolder(Ihandle *ih)
 	// We want to filter only against the file name, and not the path.
 	NSString* file_name = [file_path lastPathComponent];
 	
-	NSString* semicolon_separated_string = [NSString stringWithUTF8String:value];
+	NSString* semicolon_separated_string = iupCocoaStringFromCStr(value);
 	// The Windows version doesn't worry about extra white space, so I won't either.
 	NSArray* array_of_filters = [semicolon_separated_string componentsSeparatedByString:@";"];
 
@@ -255,7 +255,7 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
   value = iupAttribGet(ih, "EXTFILTER");
   if (value)
   {
-	NSArray *arr = [[NSString stringWithUTF8String:value] componentsSeparatedByCharactersInSet:
+	NSArray *arr = [iupCocoaStringFromCStr(value) componentsSeparatedByCharactersInSet:
 		[NSCharacterSet characterSetWithCharactersInString:@"|;"]];  
 	extention_array = [NSMutableArray arrayWithCapacity:[arr count]];
 	for(NSString *str in arr)
@@ -270,7 +270,7 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
     value = iupAttribGet(ih, "FILTER");
     if (value)
     {
-		NSArray *arr = [[NSString stringWithUTF8String:value] componentsSeparatedByCharactersInSet:
+		NSArray *arr = [iupCocoaStringFromCStr(value) componentsSeparatedByCharactersInSet:
 			[NSCharacterSet characterSetWithCharactersInString:@"|;"]];  
 		extention_array = [NSMutableArray arrayWithCapacity:[arr count]];
 		for(NSString *str in arr)
@@ -286,13 +286,13 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
   value = iupAttribGet(ih, "FILE");
   if(value && 0!=*value)
   {
-	[file_panel setNameFieldStringValue:[NSString stringWithUTF8String:value]];
+	[file_panel setNameFieldStringValue:iupCocoaStringFromCStr(value)];
   }
 
 	value = iupAttribGet(ih, "DIRECTORY");
 	if(value && 0!=*value)
 	{
-		NSString* ns_string = [NSString stringWithUTF8String:value];
+		NSString* ns_string = iupCocoaStringFromCStr(value);
 		NSURL* ns_url = [NSURL URLWithString:ns_string];
 		[file_panel setDirectoryURL:ns_url];
 	}
@@ -300,7 +300,7 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
 	value = iupAttribGet(ih, "TITLE");
 	if(value && 0!=*value)
 	{
-		NSString* ns_string = [NSString stringWithUTF8String:value];
+		NSString* ns_string = iupCocoaStringFromCStr(value);
 		[file_panel setTitle:ns_string];
 	}
 

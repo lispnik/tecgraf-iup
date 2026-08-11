@@ -58,7 +58,7 @@ static int cocoaCalendarSetValueAttrib(Ihandle* ih, const char* value)
 		[date_formatter setDateFormat:@"YYYY/MM/dd"];
 		if(value && (value[0] != '\0'))
 		{
-			NSString* date_string = [NSString stringWithUTF8String:value];
+			NSString* date_string = iupCocoaStringFromCStr(value);
 			NSDate* parsed_date = [date_formatter dateFromString:date_string];
 			[date_picker setDateValue:parsed_date];
 		}

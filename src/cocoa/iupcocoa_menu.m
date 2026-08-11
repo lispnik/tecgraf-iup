@@ -762,7 +762,7 @@ static int cocoaItemSetTitleAttrib(Ihandle* ih, const char* value)
 	}
 	else
 	{
-		ns_string = [NSString stringWithUTF8String:value];
+		ns_string = iupCocoaStringFromCStr(value);
 
 	}
 	
@@ -866,7 +866,7 @@ static int cocoaItemMapMethod(Ihandle* ih)
 	}
 	else
 	{
-		ns_string = [NSString stringWithUTF8String:c_title];
+		ns_string = iupCocoaStringFromCStr(c_title);
 		
 	}
 	// search through parent to see if this item already exists
@@ -980,7 +980,7 @@ static int cocoaSubmenuSetTitleAttrib(Ihandle* ih, const char* value)
 	}
 	else
 	{
-		ns_string = [NSString stringWithUTF8String:value];
+		ns_string = iupCocoaStringFromCStr(value);
 		
 	}
 	
@@ -999,7 +999,7 @@ static int cocoaSubmenuSetTitleAttrib(Ihandle* ih, const char* value)
 	}
 	else
 	{
-		ns_string = [NSString stringWithUTF8String:value];
+		ns_string = iupCocoaStringFromCStr(value);
 		
 	}
 	
@@ -1089,7 +1089,7 @@ static int cocoaSubmenuMapMethod(Ihandle* ih)
 		}
 		else
 		{
-			ns_string = [NSString stringWithUTF8String:c_title];
+			ns_string = iupCocoaStringFromCStr(c_title);
 			
 		}
 		

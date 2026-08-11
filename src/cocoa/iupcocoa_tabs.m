@@ -229,7 +229,7 @@ static int cocoaTabsSetTabTitleAttrib(Ihandle* ih, int pos, const char* value)
 	if(value)
 	{
 		char* stripped_str = iupStrProcessMnemonic(value, NULL, 0);   /* remove & */
-		tab_title = [NSString stringWithUTF8String:stripped_str];
+		tab_title = iupCocoaStringFromCStr(stripped_str);
 	}
 	else
 	{
@@ -320,7 +320,7 @@ static int cocoaTabsSetTabTipAttrib(Ihandle* ih, int pos, const char* value)
 	NSString* tab_tip = nil;
 	if(value)
 	{
-		tab_tip = [NSString stringWithUTF8String:value];
+		tab_tip = iupCocoaStringFromCStr(value);
 	}
 	else
 	{
@@ -588,7 +588,7 @@ static int cocoaTabsComputeFullTabBarWidth(Ihandle* ih)
 
 			// Apple doesn't let us change the font, so we know exactly
 			/*
-			NSString* ns_string = [NSString stringWithUTF8String:stripped_str];
+			NSString* ns_string = iupCocoaStringFromCStr(stripped_str);
 			NSFont* tab_font = [NSFont messageFontOfSize:0];
 			NSSize string_size = [ns_string sizeWithFont:myFont
                            constrainedToSize:maximumSize

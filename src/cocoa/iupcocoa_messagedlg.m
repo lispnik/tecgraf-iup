@@ -60,8 +60,8 @@ static int macMessageDlgPopup(Ihandle* ih, int x, int y)
 	  [alert addButtonWithTitle:NSLocalizedString(@"OK", @"OK")];
 //    num_but = 1;
   }       
-  [alert setInformativeText: [NSString stringWithUTF8String:iupAttribGet(ih, "VALUE")]];
-  [alert setMessageText:     [NSString stringWithUTF8String:iupAttribGet(ih, "TITLE")]];
+  [alert setInformativeText: iupCocoaStringFromCStr(iupAttribGet(ih, "VALUE"))];
+  [alert setMessageText:     iupCocoaStringFromCStr(iupAttribGet(ih, "TITLE"))];
 
   result = [alert runModal];
   if (result == 0)

@@ -1081,7 +1081,7 @@ static int cocoaDialogSetTitleAttrib(Ihandle* ih, const char* value)
 	NSWindow* the_window = cocoaDialogGetWindow(ih);
 	if(value)
 	{
-		NSString* ns_string = [NSString stringWithUTF8String:value];
+		NSString* ns_string = iupCocoaStringFromCStr(value);
 		[the_window setTitle:ns_string];
 	}
 	else
@@ -1123,7 +1123,7 @@ static int cocoaDialogSetProxyIconAttrib(Ihandle* ih, const char* value)
 	NSWindow* the_window = cocoaDialogGetWindow(ih);
 	if(value)
 	{
-		NSString* ns_string = [NSString stringWithUTF8String:value];
+		NSString* ns_string = iupCocoaStringFromCStr(value);
 		[the_window setRepresentedFilename:ns_string];
 	}
 	else
@@ -1141,7 +1141,7 @@ static int cocoaDialogSetProxyIconTitleAttrib(Ihandle* ih, const char* value)
 	NSWindow* the_window = cocoaDialogGetWindow(ih);
 	if(value)
 	{
-		NSString* ns_string = [NSString stringWithUTF8String:value];
+		NSString* ns_string = iupCocoaStringFromCStr(value);
 		[the_window setTitleWithRepresentedFilename:ns_string];
 	}
 	else

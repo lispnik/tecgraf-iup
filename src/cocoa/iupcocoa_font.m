@@ -192,7 +192,7 @@ static IupCocoaFont* cocoaFindFont(const char* iup_font_name)
 		return NULL;
 	}
 
-	NSString* ns_iup_font_name = [NSString stringWithUTF8String:iup_font_name];
+	NSString* ns_iup_font_name = iupCocoaStringFromCStr(iup_font_name);
 
 	// Check our cache
 	IupCocoaFont* the_font = [s_mapOfFonts objectForKey:ns_iup_font_name];
@@ -207,7 +207,7 @@ static IupCocoaFont* cocoaFindFont(const char* iup_font_name)
 		return NULL;
 	}
 	
-	NSString* ns_type_face = [NSString stringWithUTF8String:type_face];
+	NSString* ns_type_face = iupCocoaStringFromCStr(type_face);
 	NSFont* ns_font = [NSFont fontWithName:ns_type_face size:(CGFloat)font_size];
 	
 	if(nil == ns_font)

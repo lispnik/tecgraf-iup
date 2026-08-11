@@ -103,7 +103,7 @@ static int cocoaFrameSetTitleAttrib(Ihandle* ih, const char* title)
 
 	if(title && *title!=0)
 	{
-		NSString* ns_string = [NSString stringWithUTF8String:title];
+		NSString* ns_string = iupCocoaStringFromCStr(title);
 		[the_frame setTitle:ns_string];
 		[the_frame setTitlePosition:NSAtTop];
 
@@ -131,7 +131,7 @@ static int cocoaFrameMapMethod(Ihandle* ih)
 		title = iupAttribGet(ih, "TITLE");
 		if(title && *title!=0)
 		{
-			NSString* ns_string = [NSString stringWithUTF8String:title];
+			NSString* ns_string = iupCocoaStringFromCStr(title);
 			[the_frame setTitle:ns_string];
 		}
 		else

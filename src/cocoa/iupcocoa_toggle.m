@@ -152,7 +152,7 @@ static int cocoaToggleSetTitleAttrib(Ihandle* ih, const char* value)
 	{
 		if(stripped_str && *stripped_str!=0)
 		{
-			NSString* ns_string = [NSString stringWithUTF8String:stripped_str];
+			NSString* ns_string = iupCocoaStringFromCStr(stripped_str);
 			[the_toggle setTitle:ns_string];
 			/*
 			 if(ih->data->type == IUP_TOGGLE_IMAGE)
@@ -305,7 +305,7 @@ static int cocoaToggleMapMethod(Ihandle* ih)
         char* stripped_str = iupStrProcessMnemonic(value, NULL, 0);   /* remove & */
         
         // This will return nil if the string can't be converted.
-        NSString* ns_string = [NSString stringWithUTF8String:stripped_str];
+        NSString* ns_string = iupCocoaStringFromCStr(stripped_str);
         
         if(stripped_str && stripped_str != value)
         {

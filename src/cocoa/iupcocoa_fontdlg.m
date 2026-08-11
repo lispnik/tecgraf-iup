@@ -106,7 +106,7 @@ static int macFontDlgPopup(Ihandle* ih, int x, int y)
   float factor = [[NSScreen mainScreen] userSpaceScaleFactor];
   height_pixels = (int)(height * factor);
   
-  NSFont *hFont = [NSFont fontWithName:[NSString stringWithUTF8String:standardfont] size:height];
+  NSFont *hFont = [NSFont fontWithName:iupCocoaStringFromCStr(standardfont) size:height];
   attr = [[NSMutableDictionary alloc] init];
 
   if(is_italic)

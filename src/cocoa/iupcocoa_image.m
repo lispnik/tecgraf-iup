@@ -910,7 +910,7 @@ void* iupdrvImageLoad(const char* name, int type)
 	NSImage* the_image = nil;
 	NSString* bundle_path = [[NSBundle mainBundle] bundlePath];
 
-	NSString* ns_name = [NSString stringWithUTF8String:name];
+	NSString* ns_name = iupCocoaStringFromCStr(name);
 	
 	// Problem: The path either must be absolute, or it must be in the application bundle.
 	// TODO: We could also try to look elsewhere if we choose to, but beware of Sandboxing.

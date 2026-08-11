@@ -45,6 +45,14 @@ IUP_DRV_API extern const void* ROOTVIEW_ASSOCIATED_OBJ_KEY;
 #define iupAppleNSLog(...) asl_log(NULL, NULL, ASL_LEVEL_INFO, "%s", [[NSString stringWithFormat:__VA_ARGS__] UTF8String])
 #endif
 	
+/* Convert a C string coming from IUP into an NSString that is never nil.
+   +stringWithUTF8String: returns nil for any byte sequence that is not valid UTF-8, and IUP
+   applications routinely pass Latin-1 text (most of the bundled examples are ISO-8859-1). Feeding
+   that nil to AppKit raised NSInvalidArgumentException and killed the app outright -- see the
+   list3 and textformat examples. Falls back to Latin-1, which cannot fail, then to an empty
+   string, so callers can use the result unchecked. */
+IUP_DRV_API NSString* iupCocoaStringFromCStr(const char* c_str);
+
 IUP_DRV_API NSObject* iupCocoaGetRootObject(Ihandle* ih);
 IUP_DRV_API NSView* iupCocoaGetRootView(Ihandle* ih);
 IUP_DRV_API NSView* iupCocoaGetMainView(Ihandle* ih);

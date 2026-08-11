@@ -31,7 +31,7 @@ int iupdrvBaseSetTipAttrib(Ihandle* ih, const char* value)
 	{
 		the_view = (NSView*)widget_handle;
 		
-		NSString* tip_string = [NSString stringWithUTF8String:value];
+		NSString* tip_string = iupCocoaStringFromCStr(value);
 		[the_view setToolTip:tip_string];
 	}
 	return 1;

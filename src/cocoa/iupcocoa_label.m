@@ -110,7 +110,7 @@ static int cocoaLabelSetTitleAttrib(Ihandle* ih, const char* value)
 			char* stripped_str = iupStrProcessMnemonic(value, NULL, 0);   /* remove & */
 			
 			// This will return nil if the string can't be converted.
-			ns_string = [NSString stringWithUTF8String:stripped_str];
+			ns_string = iupCocoaStringFromCStr(stripped_str);
 			
 			if(stripped_str && stripped_str != value)
 			{

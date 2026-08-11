@@ -40,6 +40,28 @@ const void* IHANDLE_ASSOCIATED_OBJ_KEY = @"IHANDLE_ASSOCIATED_OBJ_KEY"; // the p
 const void* MAINVIEW_ASSOCIATED_OBJ_KEY = @"MAINVIEW_ASSOCIATED_OBJ_KEY"; // ih->handle is the root object, but often the main view is lower down, (e.g. scrollview contains the real widget).
 const void* ROOTVIEW_ASSOCIATED_OBJ_KEY = @"ROOTVIEW_ASSOCIATED_OBJ_KEY"; // ih->handle is the root object, but in a few cases, this is not a View, e.g. NSWindow. Many times we want the root view.
 
+
+NSString* iupCocoaStringFromCStr(const char* c_str)
+{
+	NSString* ns_string;
+
+	if(NULL == c_str)
+	{
+		return @"";
+	}
+	ns_string = [NSString stringWithUTF8String:c_str];
+	if(nil == ns_string)
+	{
+		/* Not valid UTF-8. Latin-1 maps every byte to a character, so this cannot fail. */
+		ns_string = [NSString stringWithCString:c_str encoding:NSISOLatin1StringEncoding];
+	}
+	if(nil == ns_string)
+	{
+		ns_string = @"";
+	}
+	return ns_string;
+}
+
 NSObject* iupCocoaGetRootObject(Ihandle* ih)
 {
 	if(NULL == ih)
@@ -800,7 +822,7 @@ IUP_SDK_API void iupdrvSetAccessibleTitle(Ihandle *ih, const char* title)
 		}
 		else
 		{
-            NSString* ns_title = [NSString stringWithUTF8String:title];
+            NSString* ns_title = iupCocoaStringFromCStr(title);
 			[the_object setAccessibilityLabel:ns_title];
 		}
 	}

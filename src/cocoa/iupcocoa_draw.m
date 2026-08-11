@@ -431,7 +431,7 @@ NSGraphicsContext* nsgc = [NSGraphicsContext graphicsContextWithCGContext:cg_con
     NSPoint start_point = { x, y };
  //   startPoint.x = bounds.origin.x + bounds.size.width / 2 - size.width / 2;
  //   startPoint.y = bounds.origin.y + bounds.size.height / 2 - size.height / 2;
-	NSString* ns_string = [NSString stringWithUTF8String:text];
+	NSString* ns_string = iupCocoaStringFromCStr(text);
     [ns_string drawAtPoint:start_point withAttributes: nil];
 	 [NSGraphicsContext restoreGraphicsState];
 }

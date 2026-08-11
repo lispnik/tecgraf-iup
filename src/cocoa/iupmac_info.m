@@ -37,14 +37,14 @@ char* iupdrvGetCurrentDirectory(void)
 
 int iupdrvSetCurrentDirectory(const char* dir)
 {
-	NSString *path = [NSString stringWithUTF8String:dir];
+	NSString *path = iupCocoaStringFromCStr(dir);
 	Boolean r = [[NSFileManager defaultManager] changeCurrentDirectoryPath: path];
 	return (r ? 1 : 0);
 }
 
 int iupdrvMakeDirectory(const char* name) 
 {
-	NSString *path = [NSString stringWithUTF8String:name];
+	NSString *path = iupCocoaStringFromCStr(name);
 	NSDictionary *dic = [NSDictionary dictionaryWithObjectsAndKeys:[NSNumber numberWithUnsignedInt:0775],NSFilePosixPermissions,nil];
 	Boolean r = [[NSFileManager defaultManager] createDirectoryAtPath:path withIntermediateDirectories:YES attributes:dic error:NULL];
 	return (r ? 1 : 0);
@@ -52,7 +52,7 @@ int iupdrvMakeDirectory(const char* name)
 
 int iupdrvIsFile(const char* name)
 {
-	NSString *path = [NSString stringWithUTF8String:name];
+	NSString *path = iupCocoaStringFromCStr(name);
 	Boolean isDir;
 	Boolean r = [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDir];
 	return (r && !isDir ? 1 : 0);
@@ -60,7 +60,7 @@ int iupdrvIsFile(const char* name)
 
 int iupdrvIsDirectory(const char* name)
 {
-	NSString *path = [NSString stringWithUTF8String:name];
+	NSString *path = iupCocoaStringFromCStr(name);
 	Boolean isDir;
 	Boolean r = [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDir];
 	return (r && isDir ? 1 : 0);

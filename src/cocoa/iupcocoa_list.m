@@ -769,7 +769,7 @@ void iupdrvListAppendItem(Ihandle* ih, const char* value)
 		case IUPCOCOALISTSUBTYPE_DROPDOWN:
 		{
 			NSPopUpButton* popup_button = (NSPopUpButton*)cocoaListGetBaseWidget(ih);
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			[[popup_button menu] addItemWithTitle:ns_string action:nil keyEquivalent:@""];
 			
 			break;
@@ -777,7 +777,7 @@ void iupdrvListAppendItem(Ihandle* ih, const char* value)
 		case IUPCOCOALISTSUBTYPE_EDITBOXDROPDOWN:
 		{
 			NSComboBox* combo_box = (NSComboBox*)cocoaListGetBaseWidget(ih);
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			[combo_box addItemWithObjectValue:ns_string];
 			
 			break;
@@ -790,7 +790,7 @@ void iupdrvListAppendItem(Ihandle* ih, const char* value)
 			IupCocoaListTableViewReceiver* list_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
 			NSMutableArray* data_array = [list_receiver dataArray];
 			
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			[data_array addObject:ns_string];
 	
 #if 0
@@ -828,7 +828,7 @@ void iupdrvListInsertItem(Ihandle* ih, int pos, const char* value)
 		case IUPCOCOALISTSUBTYPE_DROPDOWN:
 		{
 			NSPopUpButton* popup_button = (NSPopUpButton*)cocoaListGetBaseWidget(ih);
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			[[popup_button menu] insertItemWithTitle:ns_string action:nil keyEquivalent:@"" atIndex:pos];
 			
 			break;
@@ -836,7 +836,7 @@ void iupdrvListInsertItem(Ihandle* ih, int pos, const char* value)
 		case IUPCOCOALISTSUBTYPE_EDITBOXDROPDOWN:
 		{
 			NSComboBox* combo_box = (NSComboBox*)cocoaListGetBaseWidget(ih);
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			[combo_box insertItemWithObjectValue:ns_string atIndex:pos];
 			
 			break;
@@ -849,7 +849,7 @@ void iupdrvListInsertItem(Ihandle* ih, int pos, const char* value)
 			IupCocoaListTableViewReceiver* list_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
 			NSMutableArray* data_array = [list_receiver dataArray];
 			
-			NSString* ns_string = [NSString stringWithUTF8String:value];
+			NSString* ns_string = iupCocoaStringFromCStr(value);
 			[data_array insertObject:ns_string atIndex:pos];
 
 #if 0
@@ -1188,7 +1188,7 @@ static int cocoaListSetValueAttrib(Ihandle* ih, const char* value)
 			}
 			else
 			{
-				ns_string = [NSString stringWithUTF8String:value];
+				ns_string = iupCocoaStringFromCStr(value);
 			}
 
 			[combo_box setStringValue:ns_string];
@@ -1259,7 +1259,7 @@ static int cocoaListSetValueAttrib(Ihandle* ih, const char* value)
 			NSTextField* text_field = cocoaListGetEditBoxTextField(ih);
 			if(nil != text_field)
 			{
-				[text_field setStringValue:(value ? [NSString stringWithUTF8String:value] : @"")];
+				[text_field setStringValue:(value ? iupCocoaStringFromCStr(value) : @"")];
 			}
 			break;
 		}
