@@ -115,7 +115,17 @@ int iupdrvOpen(int *argc, char ***argv)
 	}
 
 	[NSApplication sharedApplication];
-//	[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+	/* Without this, a process that is not inside a .app bundle defaults to
+	   NSApplicationActivationPolicyProhibited: it can never be activated, so its windows can
+	   never become key and clicking them does nothing. Bundled apps launched via LaunchServices
+	   already get Regular from LaunchServices.
+	   Only set it when it is actually wrong: calling setActivationPolicy: on an app that is
+	   already Regular clears its activation, so an app launched via `open` would come up
+	   unfocused. */
+	if([NSApp activationPolicy] != NSApplicationActivationPolicyRegular)
+	{
+		[NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+	}
 	/*
 	id menubar = [[NSMenu new] autorelease];
 	id appMenuItem = [[NSMenuItem new] autorelease];

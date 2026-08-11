@@ -197,7 +197,18 @@ void IupFlush(void)
 {
   int post_quit = 0;
   NSEvent *event;
-  while(1) { 
+
+  /* Pumping the event queue before [NSApp run] has started permanently wedges AppKit's event
+     delivery: the app stays active with a key window, but never receives another NSEvent, so
+     macOS judges it unresponsive and shows the spinning wait cursor.
+     IupShow() calls IupFlush() (iup_dialog.c) and apps typically call IupShow before
+     IupMainLoop, which is exactly that situation. Nothing needs flushing before the loop runs. */
+  if(![NSApp isRunning])
+  {
+    return;
+  }
+
+  while(1) {
     event = [NSApp
 	                nextEventMatchingMask:NSAnyEventMask
 	                untilDate:[NSDate dateWithTimeIntervalSinceNow:0.0]
