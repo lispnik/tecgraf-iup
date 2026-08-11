@@ -1,11 +1,25 @@
-# Build outputs
-BUILD/
-BUILD-xcode/
-*.o
-*.a
-*.dylib
-
-# SVN metadata - this tree is an SVN working copy of upstream trunk
-.svn/
-
+*.iml
+.gradle
+local.properties
+.idea/workspace.xml
+.idea/libraries
 .DS_Store
+build/
+captures
+.externalNativeBuild
+BUILD/
+*.swp
+*.tmp
+*.pbxuser
+*.perspectivev
+*.perspectivev3
+*.mode1v3
+*.modelv3
+*~.*
+*.o
+.#*
+*.xcuserstate
+*.xcbkptlist
+*.xcuserdatad
+
+

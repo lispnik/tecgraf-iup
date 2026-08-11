@@ -1,0 +1,10 @@
+<map id="structs" name="structs">
+<area shape="rect" id="node1" href="$group__mask.html" title="Text Mask" alt="" coords="175,5,257,35"/>
+<area shape="rect" id="node2" href="$group__iarray.html" title="Simple Array" alt="" coords="168,59,264,88"/>
+<area shape="rect" id="node3" href="$group__str.html" title="String Utilities" alt="" coords="165,112,267,141"/>
+<area shape="rect" id="node5" href="$group__linefile.html" title="Line Base Text File Load API" alt="" coords="121,165,311,195"/>
+<area shape="rect" id="node6" href="$group__assert.html" title="Assert Utilities" alt="" coords="163,219,269,248"/>
+<area shape="rect" id="node7" href="$group__auxdraw.html" title="Auxiliary Draw API" alt="" coords="151,272,281,301"/>
+<area shape="rect" id="node8" href="$group__drvdraw.html" title="Driver Draw API" alt="" coords="160,325,272,355"/>
+<area shape="rect" id="node9" href="$group__table.html" title="Hash Table" alt="" coords="173,379,259,408"/>
+</map>

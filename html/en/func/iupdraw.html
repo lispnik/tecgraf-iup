@@ -1,0 +1,320 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Strict//EN">
+<html>
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<title>IupDraw</title>
+
+<link rel="stylesheet" type="text/css" href="../../style.css">
+<style type="text/css">
+.style1 {
+	text-decoration: underline;
+}
+.auto-style1 {
+	font-size: large;
+}
+.auto-style2 {
+	background-color: #CEE7FF;
+}
+</style>
+</head>
+<body>
+
+<h2>IupDraw<span class="auto-style1"> (since 3.19)</span></h2>
+<p>A group of functions to draw in a <a href="../elem/iupcanvas.html">IupCanvas</a> or a
+<a href="../elem/iupbackgroundbox.html">IupBackgroundBox</a>. They are simple functions 
+designed to help the drawing of custom controls based on these two controls. It 
+is NOT a complete set of drawing functions, for that you should still use 
+another toolkit like <a href="http://www.tecgraf.puc-rio.br/cd">CD</a>. </p>
+<p>To use the functions in C/C++ you must include the &quot;iupdraw.h&quot; header.</p>
+<p>Internally IupDraw uses several drawing APIs: GDI, Direct2D, GDI+ (in 
+Windows); X11 (in Motif), GDK and Cairo (in GTK). </p>
+<p>All drivers are double buffered, so drawing occurs off-screen and the final 
+result is displayed when <strong>IupDrawEnd</strong> is called only.</p>
+<p>Direct2D and GDI+ are accessed using the
+<a href="https://github.com/mity/windrawlib">WinDrawLib</a> library by Martin 
+Mitáš. This library is embedded in IUP source code and uses dynamically load to 
+import Direct 2D and GDI+ functions in C, so no extra libraries are need to be 
+linked by the application. It uses the same MIT <a href="windrawlib.txt">license</a> 
+used by IUP. We would like to thank Martin Mitáš for sharing such important 
+tool. (since 3.25)</p>
+<p>Since IUP 3.25, the Direct2D/GDI+ Windows, and 
+Cairo in Linux (even in GTK 2) drivers added support for alpha (transparency) in 
+colors and antialiasing in primitives. In Windows XP, there is no Direct 2D then GDI+ 
+is used. In IUP 3.25 we set the Direct 2D driver as default, but the overall 
+performance of complex dialogs became noticeably slow unfortunately, so in 3.27 
+we were force to go back to GDI. But we added a hack to use GDI+ for diagonal 
+lines (non vertical or horizontal), polygons and arcs&nbsp;were antialiasing is more 
+needed and does not affect less ordinary rectangular based drawings . The hack 
+is enabled by default using the canvas <strong>DRAWANTIALIAS</strong> attribute 
+in Windows when using GDI, set it to NO if you need to disable the hack. The 
+Direct2D driver can be enabled by setting the canvas <strong>DRAWUSEDIRECT2D</strong> 
+attribute to Yes. If you want to enable it for all controls at once set <strong>
+DRAWUSEDIRECT2D=Yes</strong> as a global attribute.</p>
+<p>The canvas has a new attribute called DRAWDRIVER that returns: GDI, D2D, GDI+, 
+X11, GDK or CAIRO.</p>
+<p>IMPORTANT: all functions can be used only in <strong>IupCanvas</strong> or
+<strong>IupBackgroundBox</strong> and inside the ACTION callback. To force a 
+redraw anytime use the functions <a href="../func/iupupdate.html">IupUpdate</a> 
+or <a href="iupdraw.html">IupRedraw</a>.</p>
+<h3>Control</h3>
+<p>All other functions can be called only between calls to DrawBegin and DrawEnd.</p>
+<pre>void IupDrawBegin(Ihandle* <strong>ih</strong>); [in C]
+iup.DrawBegin<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">)</span> [in Lua]
+<strong>ih</strong>:DrawBegin() [in Lua]</pre>
+<p>Initialize the drawing process.</p>
+<pre>void IupDrawEnd(Ihandle* <strong>ih</strong>); [in C]
+iup.DrawEnd<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">)</span> [in Lua]
+<strong>ih</strong>:DrawEnd() [in Lua]</pre>
+<p>Terminates the drawing process and actually draw on screen.</p>
+<pre>void IupDrawSetClipRect(Ihandle* <strong>ih</strong>, int <strong>x1</strong>, int <strong>y1</strong>, int <strong>x2</strong>, int <strong>y2</strong>); [in C]
+iup.DrawSetClipRect<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">, <strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawSetClipRect(<span class="auto-style2"><strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span>) [in Lua]</pre>
+<p>Defines a rectangular clipping region.</p>
+<pre>void IupDrawResetClip(Ihandle* <strong>ih</strong>); [in C]
+iup.Draw<span class="auto-style2">ResetClip(</span><strong>ih</strong>: ihandle<span class="auto-style2">)</span> [in Lua]
+<strong>ih</strong>:DrawResetClip() [in Lua]</pre>
+<p>Reset the clipping area to none.</p>
+<pre>void IupDrawGetClipRect(Ihandle* <strong>ih</strong>, int *<strong>x1</strong>, int *<strong>y1</strong>, int *<strong>x2</strong>, int *<strong>y2</strong>); [in C]
+iup.DrawGetClipRect<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">) -&gt; <strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span> [in Lua]
+<strong>ih</strong>:DrawGetClipRect() -&gt; <span class="auto-style2"><strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span> [in Lua]</pre>
+<p>Returns the previous rectangular clipping region set by IupDrawSetClipRect, 
+if clipping was reset returns 0 in all values. (since 3.25)</p>
+<h3>Primitives</h3>
+<p>The primitives color is controlled by the attribute <strong>DRAWCOLOR</strong>.
+<span style="color: rgb(0, 0, 0); font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; display: inline !important; float: none; background-color: rgb(255, 255, 255);">
+Default: &quot;0 0 0&quot;. Since version 3.25 the alpha component is also 
+supported but depends on the current driver, if not specified 255 (opaque) is assumed.</span></p>
+<p>Rectangle, Arc and Polygon can be filled or stroked. When stroked the line 
+style can be continuous, dashed or dotted. These are controlled by the attribute 
+<strong>DRAWSTYLE</strong>. Can have values: FILL, STROKE, STROKE_DASH, STROKE_DOT, 
+STROKE_DASH_DOT or STROKE_DASH_DOT_DOT (dash dot and dash dot dot since 3.25). Default: 
+STROKE. The FILL value when set before DrawLine has the same effect as STROKE. </p>
+<p>The line width default is 1, but it can be controlled by the <strong>DRAWLINEWIDTH</strong> 
+attribute. (since 3.24)</p>
+<pre>void IupDrawParentBackground(Ihandle* <strong>ih</strong>); [in C]
+iup.DrawParentBackground<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">)</span> [in Lua]
+<strong>ih</strong>:DrawParentBackground() [in Lua]</pre>
+<p>Fills the canvas with the native parent background color.</p>
+<pre>void IupDrawLine(Ihandle* <strong>ih</strong>, int <strong>x1</strong>, int <strong>y1</strong>, int <strong>x2</strong>, int <strong>y2</strong>); [in C]
+iup.DrawLine<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">, <strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawLine(<span class="auto-style2"><strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span>) [in Lua]</pre>
+<p>Draws a line including start and end points.</p>
+<pre>void IupDrawRectangle(Ihandle* <strong>ih</strong>, int <strong>x1</strong>, int <strong>y1</strong>, int <strong>x2</strong>, int <strong>y2</strong>); [in C]
+iup.DrawRectangle<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">, <strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawRectangle(<span class="auto-style2"><strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span>) [in Lua]</pre>
+<p>Draws a rectangle including start and end points.</p>
+<pre>void IupDrawArc(Ihandle* <strong>ih</strong>, int <strong>x1</strong>, int <strong>y1</strong>, int <strong>x2</strong>, int <strong>y2</strong>, double <strong>a1</strong>, double <strong>a2</strong>); [in C]
+iup.Draw<span class="auto-style2">Arc(</span><strong>ih</strong>: ihandle<span class="auto-style2">, <strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2, a1, a2</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawArc(<span class="auto-style2"><strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span>) [in Lua]</pre>
+<p>Draws an arc inside a rectangle between the two angles in degrees. When 
+filled will draw a pie shape with the vertex at the center of the rectangle. 
+Angles are counter-clock wise relative to the 3 o'clock position.</p>
+<pre>void IupDrawPolygon(Ihandle* <strong>ih</strong>, int* <strong>points</strong>, int <strong>count</strong>); [in C]
+iup.DrawPolygon<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2"><strong>, points</strong>: table of number)</span> [in Lua]
+<strong>ih</strong>:DrawPolygon(<span class="auto-style2"><strong>points</strong>: table of number</span>) [in Lua]</pre>
+<p>Draws a polygon. Coordinates are stored in the array in the sequence: x1, y1, 
+x2, y2, ...</p>
+<pre>void IupDrawText(Ihandle* <strong>ih</strong>, const char* <strong>str</strong>, int <strong>len</strong>, int <strong>x</strong>, int <strong>y</strong>, int <strong>w</strong>, int <strong>h</strong>); [in C]
+iup.Draw<span class="auto-style2">Text(</span><strong>ih</strong>: ihandle<span class="auto-style2"><strong>, str</strong>: string</span><span class="auto-style2">, <strong>x</strong>, <strong>y[, w, h]</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawText(<span class="auto-style2"><strong>str</strong>: string, <strong>x</strong>, <strong>y[, w, h]</strong>: number</span>) [in Lua]</pre>
+<p>Draws a text in the given position using the font defined by <strong>DRAWFONT</strong> (since 
+3.22), if not defined then use
+<a href="../attrib/iup_font.html">FONT</a>. The size of the string is used only 
+in C. Can be -1 so <strong>strlen</strong> is used internally. The coordinates 
+are relative the top-left corner of the text. Strings with multiple line are 
+accepted using '\n&quot; as line separator. Horizontal text alignment for multiple 
+lines can be controlled using <strong>DRAWTEXTALIGNMENT</strong> attribute: ALEFT (default), ARIGHT 
+and ACENTER options (since 3.22). For single line texts if the text is larger 
+than its box and <strong>DRAWTEXTWRAP</strong>=Yes, then the line will be 
+automatically broken in multiple lines. Notice that this is done internally by 
+the system, the element natural size will still use only a single line. For the 
+remaining lines to be visible the element should use EXPAND=VERTICAL or set a 
+SIZE/RASTERSIZE with enough height for the wrapped lines. (since 
+3.25) If the text is larger that its box and <strong>DRAWTEXTELLIPSIS</strong>=Yes, 
+an ellipsis (&quot;...&quot;) will be placed near the last visible part of the text and 
+replace the invisible part. It will be ignored when WRAP=Yes (since 3.25). <span style="color: rgb(0, 0, 0); font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; display: inline !important; float: none; background-color: rgb(255, 255, 255);"><span class="Apple-converted-space">
+w and h are optional and can be -1 or 0, the text size will be used, so WRAP nor ELLIPSIS 
+will not produce any changes. The text is not automatically clipped to the 
+rectangle, if <strong>DRAWTEXTCLIP</strong>=Yes it will be clipped but depending 
+on the driver may affect the clipping set by IupDrawSetClipRect (since 3.25). 
+The text can be draw in any angle using <strong>DRAWTEXTORIENTATION</strong>, in degrees and 
+counterclockwise (since 3.25), its layout is not centered inside the given 
+rectangle when text is oriented, to center the layout use <strong>
+DRAWTEXTLAYOUTCENTER</strong>=Yes. Text orientation, ellipsis and wrap are not 
+supported in X11.</span></span></p>
+<pre>void IupDrawImage(Ihandle* <strong>ih</strong>, const char* <strong>name</strong>, int <strong>x</strong>, int <strong>y</strong>, int <strong>w</strong>, int <strong>h</strong>); [in C]
+iup.Draw<span class="auto-style2">Image(</span><strong>ih</strong>: ihandle<span class="auto-style2"><strong>, name</strong>: string or <strong>image</strong>: ihandle<strong>, x</strong>, <strong>y[, w, h]</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawImage(<strong>name</strong><span class="auto-style2">: string or <strong>image</strong>: ihandle<strong>, x</strong>, <strong>y[, w, h]</strong>: number</span>) [in Lua]</pre>
+<p>Draws an image given its name. The coordinates are relative the top-left 
+corner of the image. The image name follows the same behavior as the IMAGE 
+attribute used by many controls.
+<span style="color: rgb(0, 0, 0); font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; display: inline !important; float: none; background-color: rgb(255, 255, 255);">
+Use<span class="Apple-converted-space">&nbsp;</span></span><a href="../func/iupsethandle.html" style="font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; background-color: rgb(255, 255, 255);">IupSetHandle</a><span style="color: rgb(0, 0, 0); font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; display: inline !important; float: none; background-color: rgb(255, 255, 255);"><span class="Apple-converted-space">&nbsp;</span>or<span class="Apple-converted-space">&nbsp;</span></span><a href="../func/iupsetattributehandle.html" style="font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; background-color: rgb(255, 255, 255);">IupSetAttributeHandle</a><span style="color: rgb(0, 0, 0); font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; display: inline !important; float: none; background-color: rgb(255, 255, 255);"><span class="Apple-converted-space">&nbsp;</span>to 
+associate an image to a name. See also<span class="Apple-converted-space">&nbsp;</span></span><a href="iupimage.html" style="font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; background-color: rgb(255, 255, 255);">IupImage</a><span style="color: rgb(0, 0, 0); font-family: tahoma, verdana, arial, helvetica, geneva, sans-serif; font-size: medium; font-style: normal; font-variant: normal; font-weight: normal; letter-spacing: normal; line-height: 20.8px; orphans: auto; text-align: start; text-indent: 0px; text-transform: none; white-space: normal; widows: 1; word-spacing: 0px; -webkit-text-stroke-width: 0px; display: inline !important; float: none; background-color: rgb(255, 255, 255);">.<span class="Apple-converted-space">&nbsp;In 
+Lua, the name parameter can be the actual image handle. The <strong>DRAWMAKEINACTIVE</strong> 
+attribute can be used to force the image to be draw with an inactive state 
+appearance. The <strong>DRAWBGCOLOR</strong> can be used to control the inactive state background 
+color or when transparency is flatten. w and h are optional and can be -1 or 0, then 
+the image size will be used and no zoom will be performed (since 3.25). Image 
+zoom is not supported in X11 and GDK.</span></span><br></p>
+<pre>void IupDrawSelectRect(Ihandle* <strong>ih</strong>, int <strong>x1</strong>, int <strong>y1</strong>, int <strong>x2</strong>, int <strong>y2</strong>); [in C]
+iup.DrawSelectRect<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">, <strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawSelectRect(<span class="auto-style2"><strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span>) [in Lua]</pre>
+<p>Draws a selection rectangle.</p>
+<pre>void IupDrawFocusRect(Ihandle* <strong>ih</strong>, int <strong>x1</strong>, int <strong>y1</strong>, int <strong>x2</strong>, int <strong>y2</strong>); [in C]
+iup.DrawFocusRect<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">, <strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number)</span> [in Lua]
+<strong>ih</strong>:DrawFocusRect(<span class="auto-style2"><strong>x1</strong>, <strong>y1</strong>, <strong>x2</strong>, <strong>y2</strong>: number</span>) [in Lua]</pre>
+<p>Draws a focus rectangle.</p>
+<h3>Information</h3>
+<pre>void IupDrawGetSize(Ihandle* <strong>ih</strong>, int *<strong>w</strong>, int *<strong>h</strong>); [in C]
+iup.DrawGetSize<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">) -&gt; <strong>w</strong>, <strong>h</strong>: number</span> [in Lua]
+<strong>ih</strong>:DrawGetSize()<span class="auto-style2"> -&gt; <strong>w</strong>, <strong>h</strong>: number</span> [in Lua]</pre>
+<p>Returns the drawing area size. In C unwanted values can be NULL.</p>
+<pre>void IupDrawGetTextSize(Ihandle* <strong>ih</strong>, const char* <strong>str</strong>, int <strong>len</strong>, int *<strong>w</strong>, int *<strong>h</strong>); [in C]
+iup.DrawGetTextSize<span class="auto-style2">(</span><strong>ih</strong>: ihandle<span class="auto-style2">, <strong>str</strong>: string) -&gt; <strong>w</strong>, <strong>h</strong>: number</span> [in Lua]
+<strong>ih</strong>:DrawGetTextSize(<span class="auto-style2"><strong>str</strong>: string</span>)<span class="auto-style2"> -&gt; <strong>w</strong>, <strong>h</strong>: number</span> [in Lua]</pre>
+<p>Returns the given text size using the font defined by DRAWFONT, if not 
+defined then use
+<a href="../attrib/iup_font.html">FONT</a>.&nbsp; In C unwanted values can be 
+NULL, and if len is -1 the string must be 0 terminated and len will be 
+calculated using strlen.</p>
+<pre>void IupDrawGetImageInfo(const char* <strong>name</strong>, int *<strong>w</strong>, int *<strong>h</strong>, int *<strong>bpp</strong>); [in C]
+iup.DrawGetImageInfo<span class="auto-style2">(<strong>name</strong>: string) -&gt; <strong>w</strong>, <strong>h, bpp</strong>: number</span> [in Lua]
+<strong>ih</strong>:DrawGetImageInfo(<strong>name</strong><span class="auto-style2">: string</span>)<span class="auto-style2"> -&gt; <strong>w</strong>, <strong>h, bpp</strong>: number</span> [in Lua]</pre>
+<p>Returns the given image size and bits per pixel. bpp can be 8, 24 or 32.&nbsp; 
+In C unwanted values can be NULL.</p>
+<h3>Example</h3>
+<pre>static int canvas_action(Ihandle *ih)
+{
+  int w, h;
+
+  IupDrawBegin(ih);
+
+  IupDrawGetSize(ih, &w, &h);
+
+  /* white background */
+  IupSetAttribute(ih, "DRAWCOLOR", "255 255 255");
+//  IupSetAttribute(ih, "DRAWCOLOR", "255 0 255"); /* pink */
+  IupSetAttribute(ih, "DRAWSTYLE", "FILL");
+  IupDrawRectangle(ih, 0, 0, w - 1, h - 1);
+
+  /* Guide Lines */
+  IupSetAttribute(ih, "DRAWCOLOR", "255 0 0");
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE");
+  IupDrawLine(ih, 10, 5, 10, 19);
+  IupDrawLine(ih, 14, 5, 14, 19);
+  IupDrawLine(ih, 5, 10, 19, 10);
+  IupDrawLine(ih, 5, 14, 19, 14);
+
+  /* Stroke Rectangle, must cover guide lines */
+  IupSetAttribute(ih, "DRAWCOLOR", "0 0 0");
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE");
+  IupDrawRectangle(ih, 10, 10, 14, 14);
+
+  /* Guide Lines */
+  IupSetAttribute(ih, "DRAWCOLOR", "255 0 0");
+  IupDrawLine(ih, 10, 5 + 30, 10, 19 + 30);
+  IupDrawLine(ih, 14, 5 + 30, 14, 19 + 30);
+  IupDrawLine(ih, 5, 10 + 30, 19, 10 + 30);
+  IupDrawLine(ih, 5, 14 + 30, 19, 14 + 30);
+
+  /* Fill Rectangle, must cover guide lines */
+  IupSetAttribute(ih, "DRAWCOLOR", "0 0 0");
+  IupSetAttribute(ih, "DRAWSTYLE", "FILL");
+  IupDrawRectangle(ih, 10, 10 + 30, 14, 14 + 30);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "255 0 0");
+  IupDrawRectangle(ih, 30, 10, 50, 30);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "0 0 0");
+  IupDrawArc(ih, 30, 10, 50, 30, 0, 360);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "255 0 0");
+  IupDrawRectangle(ih, 60, 10, 80, 30);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "0 0 0");
+  IupSetAttribute(ih, "DRAWSTYLE", "FILL");
+  IupDrawArc(ih, 60, 10, 80, 30, 0, 360);
+
+
+  IupSetAttribute(ih, "DRAWCOLOR", "255 0 0");
+  IupDrawRectangle(ih, 30, 10 + 30, 50, 30 + 30);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "0 0 0");
+  IupDrawArc(ih, 30, 10 + 30, 50, 30 + 30, 45, 135);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "255 0 0");
+  IupDrawRectangle(ih, 60, 10 + 30, 80, 30 + 30);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "0 0 0");
+  IupSetAttribute(ih, "DRAWSTYLE", "FILL");
+  IupDrawArc(ih, 60, 10 + 30, 80, 30 + 30, 45, 135);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "255 0 0");
+  IupDrawLine(ih, 20, 70 - 2, 20, 70 + 2);
+  IupDrawLine(ih, 20 - 2, 70, 20 + 2, 70);
+
+  IupSetAttribute(ih, "DRAWCOLOR", "0 0 0");
+  IupSetAttribute(ih, "DRAWFONT", "Helvetica, -30");
+//  IupSetAttribute(ih, "DRAWTEXTORIENTATION", "60");
+//  IupSetAttribute(ih, "DRAWTEXTLAYOUTCENTER", "Yes");
+  IupDrawGetTextSize(ih, "Text", -1, &w, &h);
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE");
+  IupDrawRectangle(ih, 20, 70, 20 + w, 70 + h);
+  IupDrawText(ih, "Text", 0, 20, 70, -1, -1);
+  IupSetAttribute(ih, "DRAWTEXTORIENTATION", "0");
+  //  IupSetAttribute(ih, "DRAWTEXTWRAP", "Yes");
+//  IupSetAttribute(ih, "DRAWTEXTELLIPSIS", "Yes");
+//  IupSetAttribute(ih, "DRAWTEXTCLIP", "Yes");
+//  IupDrawText(ih, "Very Large Text", 0, 20, 70, 50, 70);
+
+//  IupSetAttribute(ih, "DRAWLINEWIDTH", "3");
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE");
+  IupDrawLine(ih, 10, 110, 100, 110);
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE_DASH");
+  IupDrawLine(ih, 10, 110 + 5, 100, 110 + 5);
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE_DOT");
+  IupDrawLine(ih, 10, 110 + 10, 100, 110 + 10);
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE_DASH_DOT");
+  IupDrawLine(ih, 10, 110 + 15, 100, 110 + 15);
+  IupSetAttribute(ih, "DRAWSTYLE", "STROKE_DASH_DOT_DOT");
+  IupDrawLine(ih, 10, 110 + 20, 100, 110 + 20);
+
+  IupDrawImage(ih, "Test8bpp", 110, 10, -1, -1);
+  IupDrawImage(ih, "Test24bpp", 110, 40, -1, -1);
+  IupDrawImage(ih, "Test32bpp", 110, 70, -1, -1);
+//  IupDrawImage(ih, "Test32bpp", 110, 70, 60, 60);
+
+  IupSetAttribute(ih, "DRAWFONT", "Helvetica, Bold -15");
+  IupDrawText(ih, IupGetAttribute(ih, "DRAWDRIVER"), -1, 70, 135, -1, -1);
+
+  IupDrawEnd(ih);
+  return IUP_DEFAULT;
+}
+</pre>
+
+<div align="center">
+  <center>
+  <table border="0" cellpadding="3" cellspacing="0" style="border-collapse: collapse" bordercolor="#111111">
+    <tr>
+      <td align="center" class="style1">Direct 2D (Windows)</td>
+      <td align="center" class="style1">Cairo (Linux)</td>
+    </tr>
+    <tr>
+      <td align="center" class="style1">
+	  <img height="160" src="iup_draw_d2d.png" width="160"></td>
+      <td align="center" class="style1">
+	  <img height="160" src="iup_draw_cairo.png" width="160"></td>
+    </tr>
+    </table>
+  </center>
+</div>
+
+<p>&nbsp;</p>
+<h3>See Also</h3>
+<p> <a href="../elem/iupcanvas.html">IupCanvas</a>, 
+<a href="../elem/iupbackgroundbox.html">IupBackgroundBox</a>, <a href="../func/iupupdate.html">IupUpdate</a>, <a href="iupdraw.html">IupRedraw</a></p>
+
+</body>
+
+</html>

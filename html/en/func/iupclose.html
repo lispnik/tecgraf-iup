@@ -1,0 +1,36 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Strict//EN">
+<html>
+<head>
+<meta http-equiv="Content-Language" content="en-us">
+<title>IupClose</title>
+
+<link rel="stylesheet" type="text/css" href="../../style.css">
+</head>
+<body>
+
+<h2>IupClose</h2>
+<p>Ends the IUP toolkit and releases internal 
+  memory. It will also automatically destroy all dialogs and all elements that 
+have names.</p>
+<h3>
+Parameters/Return</h3>
+<pre>void IupClose(void); [in C]
+iup.Close() [in Lua]</pre>
+<h3>Notes</h3>
+<p>In Windows, the CoUninitialize function is called.</p>
+<p>In Motif, the XtDestroyApplicationContext function is called.</p>
+<p>This function is usually called by the 
+  application to match the call to <strong>IupOpen</strong>. </p>
+<p>When the Lua binding is used, and IUP is dynamically loaded then you should call 
+<b>iup.Close</b> from Lua. If IUP is statically loaded and <strong>iuplua_open</strong> 
+was called, then you should call <strong>iuplua_close</strong>. </p>
+<p><strong>
+iuplua_close</strong> will destroy all dialogs and all elements that have names that where 
+created with the same Lua context before <strong>IupClose</strong> is actually 
+called (since 3.31).</p>
+<h3>See Also</h3>
+<p><a href="iupopen.html">IupOpen</a>, <a href="iuplua_open.html">iuplua_open</a></p>
+
+</body>
+
+</html>
