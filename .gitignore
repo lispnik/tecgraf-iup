@@ -1,0 +1,11 @@
+# Build outputs
+BUILD/
+BUILD-xcode/
+*.o
+*.a
+*.dylib
+
+# SVN metadata - this tree is an SVN working copy of upstream trunk
+.svn/
+
+.DS_Store
