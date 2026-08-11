@@ -157,11 +157,11 @@
 	_backingHeight = want_h;
 	_backingScale = scale;
 
-	/* points, origin top-left. Anchored to the TOP of the (possibly oversized) bitmap so the
-	   visible area is always the top-left corner of it. */
+	/* Work in points, but keep NATIVE Quartz orientation (origin bottom-left). CD draws straight
+	   into this context and expects native orientation -- flipping here mirrored everything CD
+	   produced, text and geometry alike. IUP's own top-left origin is applied per draw canvas
+	   instead, in iupdrvDrawCreateCanvas. The live area is the BOTTOM-left of the bitmap. */
 	CGContextScaleCTM(_backingContext, scale, scale);
-	CGContextTranslateCTM(_backingContext, 0.0, (CGFloat)want_h / scale);
-	CGContextScaleCTM(_backingContext, 1.0, -1.0);
 	/* everything after this is the caller's; remember it as the base state */
 	CGContextSaveGState(_backingContext);
 }
@@ -180,7 +180,7 @@
 		return NO;
 	}
 	{
-		NSGraphicsContext* backing_ns = [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:YES];
+		NSGraphicsContext* backing_ns = [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:NO];
 		[NSGraphicsContext saveGraphicsState];
 		[NSGraphicsContext setCurrentContext:backing_ns];
 	}
@@ -211,7 +211,7 @@
 {
 	[self iupEnsureBackingStore];
 	if(NULL == _backingContext) { return [NSGraphicsContext currentContext]; }
-	return [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:YES];
+	return [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:NO];
 }
 
 - (CGContextRef) CGContext
@@ -243,7 +243,7 @@
 	   content in the backing store and simply survive. */
 	_insideDrawRect = true;
 	{
-		NSGraphicsContext* backing_ns = [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:YES];
+		NSGraphicsContext* backing_ns = [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:NO];
 		[NSGraphicsContext saveGraphicsState];
 		[NSGraphicsContext setCurrentContext:backing_ns];
 		CGContextSaveGState(_backingContext);
@@ -270,10 +270,10 @@
 		CGImageRef image = NULL;
 		if(NULL != full)
 		{
-			/* the live area is the top-left corner of the bitmap */
-			/* CGImageCreateWithImageInRect uses a TOP-left origin, and the live area is the
-			   top-left corner of the bitmap, so the crop starts at (0,0). */
-			CGRect crop = CGRectMake(0.0, 0.0,
+			/* The live area is the BOTTOM-left of the bitmap (native orientation), while
+			   CGImageCreateWithImageInRect measures from the TOP, so skip the unused rows. */
+			CGRect crop = CGRectMake(0.0,
+				(CGFloat)_backingHeight - bounds_rect.size.height * _backingScale,
 				bounds_rect.size.width  * _backingScale,
 				bounds_rect.size.height * _backingScale);
 			image = CGImageCreateWithImageInRect(full, crop);

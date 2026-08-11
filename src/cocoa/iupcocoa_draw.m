@@ -139,6 +139,16 @@ IdrawCanvas* iupdrvDrawCreateCanvas(Ihandle* ih)
 		dc->graphicsContext = [NSGraphicsContext graphicsContextWithCGContext:dc->cgContext flipped:YES];
 	}
 
+	/* The canvas backing store is kept in NATIVE Quartz orientation (origin bottom-left) because
+	   CD draws into the very same context and expects exactly that -- baking a flip into the
+	   context mirrored everything CD produced, text included. IUP's drawing API is top-left
+	   origin, so push the flip here and pop it in iupdrvDrawKillCanvas: it is then in effect for
+	   precisely the IUP drawing this IdrawCanvas performs, and for nothing else. */
+	CGContextSaveGState(dc->cgContext);
+	CGContextTranslateCTM(dc->cgContext, 0.0, dc->h);
+	CGContextScaleCTM(dc->cgContext, 1.0, -1.0);
+	dc->flipPushed = true;
+
 	return dc;
 }
 
@@ -150,6 +160,13 @@ void iupdrvDrawKillCanvas(IdrawCanvas* dc)
 	{
 		CGContextRestoreGState(dc->cgContext);
 		dc->clipPushed = false;
+	}
+
+	/* Pop the top-left-origin transform, restoring the context to native orientation for CD. */
+	if(dc->flipPushed && NULL != dc->cgContext)
+	{
+		CGContextRestoreGState(dc->cgContext);
+		dc->flipPushed = false;
 	}
 
 	/* Release the scratch bitmap if we created one (see iupdrvDrawCreateCanvas). */

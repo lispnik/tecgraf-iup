@@ -21,6 +21,10 @@ struct _IdrawCanvas
 	bool ownsContext;
 	/* True while a clip is active, i.e. we have pushed exactly one graphics state for it. */
 	bool clipPushed;
+	/* True while our top-left-origin transform is pushed onto cgContext (see
+	   iupdrvDrawCreateCanvas). The context itself is natively oriented so that CD can draw into
+	   it unmodified; the flip lives only for the lifetime of this IdrawCanvas. */
+	bool flipPushed;
 /*
 	int draw_focus;
 	int focus_x1;
