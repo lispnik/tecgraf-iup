@@ -78,6 +78,74 @@ static NSStatusItem* cocoaDialogGetStatusItem(Ihandle* ih)
 @synthesize iupIhandle = _iupIhandle;
 @end
  */
+/* Key events must reach the dialog's own K_ANY/K_<key> callbacks. Only IupCanvas and IupTree
+   override -keyDown:, so a dialog whose children are plain controls (or none) never saw a key at
+   all -- every shortcut in the dialog test was dead. NSWindow is the tail of the responder chain,
+   so handling it here catches both the case where nothing else wanted the key and the case where
+   a canvas/tree passed it up with IUP_CONTINUE, which is the bubbling other IUP drivers do. */
+@interface IupCocoaWindow : NSWindow
+@end
+
+@implementation IupCocoaWindow
+
+- (Ihandle*) iupIhandle
+{
+	return (Ihandle*)objc_getAssociatedObject(self, IHANDLE_ASSOCIATED_OBJ_KEY);
+}
+
+/* A borderless window (IupDialog with no decorations, e.g. test 3) cannot become key by default,
+   which would leave it unable to receive any key event no matter who handles it. */
+- (BOOL) canBecomeKeyWindow
+{
+	return YES;
+}
+
+- (BOOL) canBecomeMainWindow
+{
+	return YES;
+}
+
+- (void) keyDown:(NSEvent*)the_event
+{
+	Ihandle* ih = [self iupIhandle];
+	if(NULL != ih)
+	{
+		if(iupCocoaKeyEvent(ih, the_event, (int)[the_event keyCode], true))
+		{
+			return;
+		}
+	}
+	[super keyDown:the_event];
+}
+
+- (void) keyUp:(NSEvent*)the_event
+{
+	Ihandle* ih = [self iupIhandle];
+	if(NULL != ih)
+	{
+		if(iupCocoaKeyEvent(ih, the_event, (int)[the_event keyCode], false))
+		{
+			return;
+		}
+	}
+	[super keyUp:the_event];
+}
+
+- (void) flagsChanged:(NSEvent*)the_event
+{
+	Ihandle* ih = [self iupIhandle];
+	if(NULL != ih)
+	{
+		if(iupCocoaModifierEvent(ih, the_event, (int)[the_event keyCode]))
+		{
+			return;
+		}
+	}
+	[super flagsChanged:the_event];
+}
+
+@end
+
 @interface IupCocoaWindowDelegate : NSObject <NSWindowDelegate>
 - (BOOL) windowShouldClose:(id)the_sender;
 - (NSSize) windowWillResize:(NSWindow*)the_sender toSize:(NSSize)frame_size;
@@ -1120,7 +1188,7 @@ static int cocoaDialogMapMethod(Ihandle* ih)
 	// which is intended to make the window grow to fit.
 	// I made the mistake of making the initial window too big and didn't understand why I could never get a window that perfectly fit the contents.
 	// I think the other implementations start with 100x100.
-	NSWindow* the_window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 100, 100)
+	NSWindow* the_window = [[IupCocoaWindow alloc] initWithContentRect:NSMakeRect(0, 0, 100, 100)
 //	NSWindow* the_window = [[NSWindow alloc] initWithContentRect:NSZeroRect
 													styleMask:NSTitledWindowMask|NSClosableWindowMask|NSResizableWindowMask|NSMiniaturizableWindowMask backing:NSBackingStoreBuffered defer:NO];
 
