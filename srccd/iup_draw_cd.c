@@ -93,7 +93,10 @@ static int cdfont(cdCtxCanvas *ctxcanvas, const char *type_face, int style, int 
 
   /* store in native font and manually save font parameters */
   strcpy(ctxcanvas->canvas->native_font, font);
-  strcpy(ctxcanvas->canvas->font_type_face, type_face);
+  /* cdUpdateAttributes() calls this with canvas->font_type_face itself as type_face, making this
+     a self-copy. strcpy() with overlapping ranges traps under _FORTIFY_SOURCE (__chk_fail_overlap),
+     which aborted IupMatrix at map time. memmove is defined for overlapping ranges. */
+  memmove(ctxcanvas->canvas->font_type_face, type_face, strlen(type_face) + 1);
   ctxcanvas->canvas->font_style = style;
   ctxcanvas->canvas->font_size = size;
 
@@ -465,8 +468,9 @@ static void cdpixel(cdCtxCanvas *ctxcanvas, int x, int y, long color)
     iupdrvDrawArc(ctxcanvas->dc, x, y, x, y, 0.0, 360.0, color, CD_FILL, 1);
 }
 
-static void cdcreatecanvas(cdCanvas* canvas, Ihandle *ih)
+static void cdcreatecanvas(cdCanvas* canvas, void* user_data)
 {
+  Ihandle *ih = (Ihandle*)user_data;
   cdCtxCanvas *ctxcanvas;
 
   ctxcanvas = (cdCtxCanvas *)malloc(sizeof(cdCtxCanvas));

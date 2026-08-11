@@ -24,8 +24,9 @@
 
 static void (*cdcreatecanvasNATIVE)(cdCanvas* canvas, void* data) = NULL;
 
-static void cdcreatecanvasIUP(cdCanvas* canvas, Ihandle *ih_canvas)
+static void cdcreatecanvasIUP(cdCanvas* canvas, void* user_data)
 {
+  Ihandle* ih_canvas = (Ihandle*)user_data;
 #ifndef WIN32
   char str[50] = "";
 #endif
@@ -94,8 +95,9 @@ cdContext* cdContextIup(void)
 
 static void(*cdcreatecanvasDBUFFER)(cdCanvas* canvas, void* data) = NULL;
 
-static void cdcreatecanvasIUP_DBUFFER(cdCanvas* canvas, Ihandle *ih_canvas)
+static void cdcreatecanvasIUP_DBUFFER(cdCanvas* canvas, void* user_data)
 {
+  Ihandle* ih_canvas = (Ihandle*)user_data;
   cdCanvas* canvas_dbuffer = cdCreateCanvas(CD_IUP, ih_canvas);
   if (!canvas_dbuffer)
     return;
@@ -135,8 +137,9 @@ cdContext* cdContextIupDBuffer(void)
 
 static void(*cdcreatecanvasDBUFFERRGB)(cdCanvas* canvas, void* data) = NULL;
 
-static void cdcreatecanvasIUP_DBUFFERRGB(cdCanvas* canvas, Ihandle *ih_canvas)
+static void cdcreatecanvasIUP_DBUFFERRGB(cdCanvas* canvas, void* user_data)
 {
+  Ihandle* ih_canvas = (Ihandle*)user_data;
   cdCanvas* canvas_dbuffer = cdCreateCanvas(CD_IUP, ih_canvas);
   if (!canvas_dbuffer)
     return;

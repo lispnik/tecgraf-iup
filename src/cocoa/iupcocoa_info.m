@@ -139,7 +139,8 @@ void iupdrvGetFullSize(int *width, int *height)
 
 int iupdrvGetScreenDepth(void)
 {
-	return CGDisplayBitsPerPixel(kCGDirectMainDisplay);  /* Deprecated in Mac OS X v10.6 */
+	/* CGDisplayBitsPerPixel was deprecated in 10.6 and has since been removed from the SDK headers. */
+	return (int)NSBitsPerPixelFromDepth([[NSScreen mainScreen] depth]);
 }
 
 // I think this is not going to work on Cocoa. Apple does everything in their power to hide this for retina.

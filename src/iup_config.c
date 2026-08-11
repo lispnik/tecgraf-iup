@@ -616,6 +616,10 @@ IUP_API void IupConfigRecentUpdate(Ihandle* ih, const char* filename)
 }
 #else
 
+/* On macOS the Cocoa driver implements these natively (NSDocumentController) in
+   cocoa/IupAppDelegate.m, so defining stubs here would be a duplicate symbol. */
+#if !(defined(__APPLE__) && TARGET_OS_OSX)
+
 /* NOT supported in MacOS for now */
 
 IUP_API void IupConfigRecentInit(Ihandle* ih, Ihandle* menu_list, Icallback recent_cb, int max_recent)
@@ -625,6 +629,8 @@ IUP_API void IupConfigRecentInit(Ihandle* ih, Ihandle* menu_list, Icallback rece
 IUP_API void IupConfigRecentUpdate(Ihandle* ih, const char* filename)
 {
 }
+
+#endif
 
 #endif /* macOS/Cocoa */
 
