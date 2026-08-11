@@ -848,8 +848,14 @@ static int iFlatScrollBarSetDXAttrib(Ihandle* ih, const char *value)
 
     return 1;
   }
-  else
+  else if (iupCanvasSetDXAttrib)
     return iupCanvasSetDXAttrib(ih, value);
+  else
+  /* These chain to the canvas class's own implementation, captured at registration time.
+     A driver that does not register the attribute (the Cocoa canvas leaves DX/DY/POSX/POSY
+     unregistered) leaves the pointer NULL, and calling it jumped to address 0. Fall back to
+     ordinary attribute storage instead of crashing. */
+    return 1;
 }
 
 static int iFlatScrollBarSetDYAttrib(Ihandle* ih, const char *value)
@@ -898,8 +904,14 @@ static int iFlatScrollBarSetDYAttrib(Ihandle* ih, const char *value)
 
     return 1;
   }
-  else
+  else if (iupCanvasSetDYAttrib)
     return iupCanvasSetDYAttrib(ih, value);
+  else
+  /* These chain to the canvas class's own implementation, captured at registration time.
+     A driver that does not register the attribute (the Cocoa canvas leaves DX/DY/POSX/POSY
+     unregistered) leaves the pointer NULL, and calling it jumped to address 0. Fall back to
+     ordinary attribute storage instead of crashing. */
+    return 1;
 }
 
 static int iFlatScrollBarSetPosXAttrib(Ihandle* ih, const char *value)
@@ -925,8 +937,14 @@ static int iFlatScrollBarSetPosXAttrib(Ihandle* ih, const char *value)
 
     return 0;
   }
-  else
+  else if (iupCanvasSetPosXAttrib)
     return iupCanvasSetPosXAttrib(ih, value);
+  else
+  /* These chain to the canvas class's own implementation, captured at registration time.
+     A driver that does not register the attribute (the Cocoa canvas leaves DX/DY/POSX/POSY
+     unregistered) leaves the pointer NULL, and calling it jumped to address 0. Fall back to
+     ordinary attribute storage instead of crashing. */
+    return 1;
 }
 
 static int iFlatScrollBarSetPosYAttrib(Ihandle* ih, const char *value)
@@ -952,24 +970,34 @@ static int iFlatScrollBarSetPosYAttrib(Ihandle* ih, const char *value)
 
     return 0;
   }
-  else
+  else if (iupCanvasSetPosYAttrib)
     return iupCanvasSetPosYAttrib(ih, value);
+  else
+  /* These chain to the canvas class's own implementation, captured at registration time.
+     A driver that does not register the attribute (the Cocoa canvas leaves DX/DY/POSX/POSY
+     unregistered) leaves the pointer NULL, and calling it jumped to address 0. Fall back to
+     ordinary attribute storage instead of crashing. */
+    return 1;
 }
 
 static char* iFlatScrollBarGetPosYAttrib(Ihandle* ih)
 {
   if (iupFlatScrollBarGet(ih) & IUP_SB_VERT)
     return NULL;
-  else
+  else if (iupCanvasGetPosYAttrib)
     return iupCanvasGetPosYAttrib(ih);
+  else
+    return NULL;  /* no base implementation on this driver */
 }
 
 static char* iFlatScrollBarGetPosXAttrib(Ihandle* ih)
 {
   if (iupFlatScrollBarGet(ih) & IUP_SB_HORIZ)
     return NULL;
-  else
+  else if (iupCanvasGetPosXAttrib)
     return iupCanvasGetPosXAttrib(ih);
+  else
+    return NULL;  /* no base implementation on this driver */
 }
 
 static int iFlatScrollBarSetShowFloatingAttrib(Ihandle* ih, const char *value)
