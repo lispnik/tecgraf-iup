@@ -99,6 +99,15 @@ IUPCOCOALISTSUBTYPE_MULTIPLELIST returns NSTableView
 IUPCOCOALISTSUBTYPE_SINGLELIST returns NSTableView
 
 */
+/* Composite view backing an EDITBOX (non-dropdown) list; implemented further down. */
+static NSTextField* cocoaListGetEditBoxTextField(Ihandle* ih);
+
+@interface IupCocoaListEditBoxView : NSView
+@property(nonatomic, assign) NSTextField* iupTextField;
+@property(nonatomic, assign) NSScrollView* iupScrollView;
+@property(nonatomic, assign) NSTableView* iupTableView;
+@end
+
 static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 {
 	IupCocoaListSubType sub_type = cocoaListGetSubType(ih);
@@ -148,6 +157,13 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 		}
 		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
+			/* The root is our composite container; the "base widget" is the list inside it, so
+			   that all the shared item-management code below works unchanged. */
+			if([root_widget isKindOfClass:[IupCocoaListEditBoxView class]])
+			{
+				return [(IupCocoaListEditBoxView*)root_widget iupTableView];
+			}
+			NSCAssert(0, @"Expecting an IupCocoaListEditBoxView");
 			return root_widget;
 			break;
 		}
@@ -435,15 +451,32 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 	NSTableView* table_view = [the_notification object];
 	Ihandle* ih = (Ihandle*)objc_getAssociatedObject(table_view, IHANDLE_ASSOCIATED_OBJ_KEY);
 	
+	/* For a list with an edit box, selecting a row copies that item into the edit box, which is
+	   how the other platforms behave. Do this before the callback so VALUE is already current. */
+	if(ih->data->has_editbox && !ih->data->is_dropdown)
+	{
+		NSTextField* text_field = cocoaListGetEditBoxTextField(ih);
+		NSInteger selected_row = [table_view selectedRow];
+		if((nil != text_field) && (selected_row >= 0))
+		{
+			IupCocoaListTableViewReceiver* row_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
+			NSMutableArray* data_array = [row_receiver dataArray];
+			if(selected_row < (NSInteger)[data_array count])
+			{
+				[text_field setStringValue:[data_array objectAtIndex:selected_row]];
+			}
+		}
+	}
+
 	IFnsii cb = (IFnsii)IupGetCallback(ih, "ACTION");
 	if(cb)
 	{
-		
-		
+
+
 		NSInteger index_of_selected_item = [table_view selectedRow];
 		int adjusted_index = (int)(index_of_selected_item+1); /* IUP starts at 1 */
 		iupListSingleCallActionCb(ih, cb, adjusted_index);
-		
+
 	}
 	
 	
@@ -460,6 +493,58 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 
 @end
 
+
+/* ---------------------------------------------------------------------------
+   IupList with EDITBOX=YES and DROPDOWN=NO.
+
+   Cocoa has no single native control for "text field above a scrolling list"
+   (NSComboBox covers the dropdown variant only), so this subtype is a composite
+   view. The container holds direct references to its parts so the rest of the
+   driver never has to walk the view tree to find them.
+   --------------------------------------------------------------------------- */
+static const CGFloat kIupCocoaListEditBoxFieldHeight = 22.0;
+static const CGFloat kIupCocoaListEditBoxGap = 2.0;
+
+@implementation IupCocoaListEditBoxView
+
+- (void) layout
+{
+	[super layout];
+
+	NSRect bounds_rect = [self bounds];
+	CGFloat field_height = kIupCocoaListEditBoxFieldHeight;
+	if(bounds_rect.size.height < field_height)
+	{
+		field_height = bounds_rect.size.height;
+	}
+
+	/* NSView is not flipped by default, so y grows upward: the edit box goes on top. */
+	[[self iupTextField] setFrame:NSMakeRect(
+		0.0,
+		bounds_rect.size.height - field_height,
+		bounds_rect.size.width,
+		field_height)];
+
+	CGFloat list_height = bounds_rect.size.height - field_height - kIupCocoaListEditBoxGap;
+	if(list_height < 0.0)
+	{
+		list_height = 0.0;
+	}
+	[[self iupScrollView] setFrame:NSMakeRect(0.0, 0.0, bounds_rect.size.width, list_height)];
+}
+
+@end
+
+/* Returns the edit box of an EDITBOX (non-dropdown) list, or nil for other subtypes. */
+static NSTextField* cocoaListGetEditBoxTextField(Ihandle* ih)
+{
+	id root_widget = (id)ih->handle;
+	if(![root_widget isKindOfClass:[IupCocoaListEditBoxView class]])
+	{
+		return nil;
+	}
+	return [(IupCocoaListEditBoxView*)root_widget iupTextField];
+}
 
 void iupdrvListAddItemSpace(Ihandle* ih, int* h)
 {
@@ -481,16 +566,13 @@ void iupdrvListAddItemSpace(Ihandle* ih, int* h)
 		}
 		case IUPCOCOALISTSUBTYPE_MULTIPLELIST:
 		case IUPCOCOALISTSUBTYPE_SINGLELIST:
+		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
 			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
 			break;
 			
 		}
 			
-		case IUPCOCOALISTSUBTYPE_EDITBOX:
-		{
-			break;
-		}
 		default:
 		{
 			break;
@@ -607,6 +689,28 @@ void iupdrvListAddBorders(Ihandle* ih, int *x, int *y)
 			
 		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
+			/* Same list metrics as SINGLELIST, plus room for the edit box stacked on top. */
+			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
+			CGFloat row_height = 17.0 + 2.0;   /* fallback when not yet mapped */
+			int visible_lines = 5;             /* documented IUP default */
+
+			if(nil != table_view)
+			{
+				row_height = [table_view rowHeight] + [table_view intercellSpacing].height;
+			}
+			if(iupAttribGet(ih, "VISIBLELINES"))
+			{
+				visible_lines = iupAttribGetInt(ih, "VISIBLELINES");
+			}
+			else if(nil != table_view)
+			{
+				visible_lines = (int)[table_view numberOfRows];
+			}
+
+			*y = iupROUND(row_height * (CGFloat)visible_lines
+			              + kIupCocoaListEditBoxFieldHeight + kIupCocoaListEditBoxGap);
+			*x += 4;   /* as for the plain list */
+			*x += 17;
 			break;
 		}
 		default:
@@ -615,7 +719,7 @@ void iupdrvListAddBorders(Ihandle* ih, int *x, int *y)
 		}
 	}
 #endif
-	
+
 }
 
 int iupdrvListGetCount(Ihandle* ih)
@@ -639,6 +743,7 @@ int iupdrvListGetCount(Ihandle* ih)
 		}
 		case IUPCOCOALISTSUBTYPE_MULTIPLELIST:
 		case IUPCOCOALISTSUBTYPE_SINGLELIST:
+		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
 			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
 			NSInteger number_of_items = [table_view numberOfRows];
@@ -646,10 +751,6 @@ int iupdrvListGetCount(Ihandle* ih)
 			
 		}
 
-		case IUPCOCOALISTSUBTYPE_EDITBOX:
-		{
-			break;
-		}
 		default:
 		{
 			break;
@@ -683,6 +784,7 @@ void iupdrvListAppendItem(Ihandle* ih, const char* value)
 		}
 		case IUPCOCOALISTSUBTYPE_MULTIPLELIST:
 		case IUPCOCOALISTSUBTYPE_SINGLELIST:
+		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
 			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
 			IupCocoaListTableViewReceiver* list_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
@@ -707,10 +809,6 @@ void iupdrvListAppendItem(Ihandle* ih, const char* value)
 
 
 #endif
-			break;
-		}
-		case IUPCOCOALISTSUBTYPE_EDITBOX:
-		{
 			break;
 		}
 		default:
@@ -745,6 +843,7 @@ void iupdrvListInsertItem(Ihandle* ih, int pos, const char* value)
 		}
 		case IUPCOCOALISTSUBTYPE_MULTIPLELIST:
 		case IUPCOCOALISTSUBTYPE_SINGLELIST:
+		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
 			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
 			IupCocoaListTableViewReceiver* list_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
@@ -764,10 +863,6 @@ void iupdrvListInsertItem(Ihandle* ih, int pos, const char* value)
 			//			[table_view reloadDataForRowIndexes:[NSIndexSet indexSetWithIndex:data_count-1] columnIndexes:[NSIndexSet indexSetWithIndex:0]];
 //			[table_view reloadDataForRowIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, data_count)] columnIndexes:[NSIndexSet indexSetWithIndex:0]];
 #endif
-			break;
-		}
-		case IUPCOCOALISTSUBTYPE_EDITBOX:
-		{
 			break;
 		}
 		default:
@@ -800,6 +895,7 @@ void iupdrvListRemoveItem(Ihandle* ih, int pos)
 		}
 		case IUPCOCOALISTSUBTYPE_MULTIPLELIST:
 		case IUPCOCOALISTSUBTYPE_SINGLELIST:
+		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
 			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
 			IupCocoaListTableViewReceiver* list_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
@@ -821,10 +917,6 @@ void iupdrvListRemoveItem(Ihandle* ih, int pos)
 //			[table_view reloadDataForRowIndexes:[NSIndexSet indexSetWithIndex:data_count-1] columnIndexes:[NSIndexSet indexSetWithIndex:0]];
 //			[table_view reloadDataForRowIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, data_count)] columnIndexes:[NSIndexSet indexSetWithIndex:0]];
 
-			break;
-		}
-		case IUPCOCOALISTSUBTYPE_EDITBOX:
-		{
 			break;
 		}
 		default:
@@ -856,6 +948,7 @@ void iupdrvListRemoveAllItems(Ihandle* ih)
 		}
 		case IUPCOCOALISTSUBTYPE_MULTIPLELIST:
 		case IUPCOCOALISTSUBTYPE_SINGLELIST:
+		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
 			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
 			IupCocoaListTableViewReceiver* list_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
@@ -872,10 +965,6 @@ void iupdrvListRemoveAllItems(Ihandle* ih)
 			//			[table_view reloadDataForRowIndexes:[NSIndexSet indexSetWithIndex:data_count-1] columnIndexes:[NSIndexSet indexSetWithIndex:0]];
 			//			[table_view reloadDataForRowIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, data_count)] columnIndexes:[NSIndexSet indexSetWithIndex:0]];
 			
-			break;
-		}
-		case IUPCOCOALISTSUBTYPE_EDITBOX:
-		{
 			break;
 		}
 		default:
@@ -949,6 +1038,7 @@ static char* cocoaListGetIdValueAttrib(Ihandle* ih, int id_value)
 		  }
 		  case IUPCOCOALISTSUBTYPE_MULTIPLELIST:
 		  case IUPCOCOALISTSUBTYPE_SINGLELIST:
+		  case IUPCOCOALISTSUBTYPE_EDITBOX:
 		  {
 			  NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
 			  IupCocoaListTableViewReceiver* list_receiver = objc_getAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
@@ -970,10 +1060,6 @@ static char* cocoaListGetIdValueAttrib(Ihandle* ih, int id_value)
 			  char* iup_str = iupStrReturnStr(c_str);
 			  return iup_str;
 			  
-			  break;
-		  }
-		  case IUPCOCOALISTSUBTYPE_EDITBOX:
-		  {
 			  break;
 		  }
 		  default:
@@ -1045,11 +1131,20 @@ static char* cocoaListGetValueAttrib(Ihandle* ih)
 			NSInteger index_of_selected_item = [table_view selectedRow];
 			int adjusted_index = (int)(index_of_selected_item+1); /* IUP starts at 1 */
 			return iupStrReturnInt(adjusted_index);
-			
+
 			break;
 		}
 		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
+			/* With an edit box, VALUE is the text it contains (same rule as EDITBOXDROPDOWN),
+			   not the selected index. */
+			NSTextField* text_field = cocoaListGetEditBoxTextField(ih);
+			if(nil == text_field)
+			{
+				break;
+			}
+			return iupStrReturnStr([[text_field stringValue] UTF8String]);
+
 			break;
 		}
 		default:
@@ -1057,7 +1152,7 @@ static char* cocoaListGetValueAttrib(Ihandle* ih)
 			break;
 		}
 	}
-	
+
 	return NULL;
 }
 
@@ -1160,6 +1255,12 @@ static int cocoaListSetValueAttrib(Ihandle* ih, const char* value)
 		}
 		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
+			/* VALUE is the edit box text for this subtype. */
+			NSTextField* text_field = cocoaListGetEditBoxTextField(ih);
+			if(nil != text_field)
+			{
+				[text_field setStringValue:(value ? [NSString stringWithUTF8String:value] : @"")];
+			}
 			break;
 		}
 		default:
@@ -1167,8 +1268,8 @@ static int cocoaListSetValueAttrib(Ihandle* ih, const char* value)
 			break;
 		}
 	}
-	
-	
+
+
 	return 0;
 }
 
@@ -1345,7 +1446,10 @@ static int cocoaListSetContextMenuAttrib(Ihandle* ih, const char* value)
 		}
 		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
-			NSLog(@"WARNING: CONTEXTMENU not available for EDITBOX");
+			/* Attach to the list part of the composite, as the other list subtypes do. */
+			NSTableView* table_view = (NSTableView*)cocoaListGetBaseWidget(ih);
+			iupCocoaCommonBaseSetContextMenuForWidget(ih, table_view, menu_ih);
+
 			break;
 		}
 		default:
@@ -1629,7 +1733,45 @@ static int cocoaListMapMethod(Ihandle* ih)
 		}
 		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
-			NSLog(@"IupList Editbox subtype not available");
+			/* Composite: NSTextField above an NSTableView in an NSScrollView. */
+			NSTableView* table_view = [[NSTableView alloc] initWithFrame:NSZeroRect];
+			NSTableColumn* first_column = [[NSTableColumn alloc] initWithIdentifier:@"IupList"];
+			[table_view addTableColumn:first_column];
+			[first_column release];
+			[table_view setHeaderView:nil];
+
+			objc_setAssociatedObject(table_view, IHANDLE_ASSOCIATED_OBJ_KEY, (id)ih, OBJC_ASSOCIATION_ASSIGN);
+
+			IupCocoaListTableViewReceiver* list_receiver = [[IupCocoaListTableViewReceiver alloc] init];
+			[table_view setDataSource:list_receiver];
+			[table_view setDelegate:list_receiver];
+			[table_view setAllowsMultipleSelection:NO];
+			objc_setAssociatedObject(table_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY, (id)list_receiver, OBJC_ASSOCIATION_ASSIGN);
+
+			NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+			[scroll_view setDocumentView:table_view];
+			[scroll_view setHasVerticalScroller:YES];
+			[table_view release];
+
+			NSTextField* text_field = [[NSTextField alloc] initWithFrame:NSZeroRect];
+			[text_field setEditable:YES];
+			[text_field setSelectable:YES];
+			[text_field setBezeled:YES];
+			[text_field setFont:[NSFont systemFontOfSize:13.0]];
+			objc_setAssociatedObject(text_field, IHANDLE_ASSOCIATED_OBJ_KEY, (id)ih, OBJC_ASSOCIATION_ASSIGN);
+
+			IupCocoaListEditBoxView* container_view = [[IupCocoaListEditBoxView alloc] initWithFrame:NSZeroRect];
+			[container_view addSubview:text_field];
+			[container_view addSubview:scroll_view];
+			[container_view setIupTextField:text_field];
+			[container_view setIupScrollView:scroll_view];
+			[container_view setIupTableView:table_view];
+			[text_field release];
+			[scroll_view release];
+
+			root_view = container_view;
+			main_view = container_view;
+
 			break;
 		}
 		default:
@@ -1638,7 +1780,7 @@ static int cocoaListMapMethod(Ihandle* ih)
 		}
 	}
 
-	/* The unsupported subtypes above leave root_view nil. Falling through would assign a NULL
+	/* Any subtype we cannot build leaves root_view nil. Falling through would assign a NULL
 	   ih->handle and then trip the NSCAssert in iupCocoaSetAssociatedViews, aborting the whole
 	   process. Fail this element gracefully instead so the rest of the dialog still maps. */
 	if(nil == root_view)
@@ -1745,6 +1887,10 @@ static void cocoaListUnMapMethod(Ihandle* ih)
 		}
 		case IUPCOCOALISTSUBTYPE_EDITBOX:
 		{
+			/* base_view is the table inside the composite container. */
+			list_receiver = objc_getAssociatedObject(base_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY);
+			objc_setAssociatedObject(base_view, IUP_COCOA_LIST_TABLEVIEW_RECEIVER_OBJ_KEY, nil, OBJC_ASSOCIATION_ASSIGN);
+
 			break;
 		}
 		default:
@@ -1752,10 +1898,10 @@ static void cocoaListUnMapMethod(Ihandle* ih)
 			break;
 		}
 	}
-	
-	
-	
-	
+
+
+
+
 
 	[list_receiver release];
 
