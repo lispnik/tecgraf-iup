@@ -21,6 +21,12 @@
    So no need to rebuild IUPCD when cdCanvas is changed. */
 #include <cd_private.h>
 
+#if defined(__APPLE__)
+/* Declared as NSView* in src/cocoa/iupcocoa_drv.h; this file is plain C, and a pointer is a
+   pointer. Exported from the iup library as IUP_DRV_API. */
+extern void* iupCocoaGetMainView(Ihandle* ih);
+#endif
+
 
 static void (*cdcreatecanvasNATIVE)(cdCanvas* canvas, void* data) = NULL;
 
@@ -32,6 +38,19 @@ static void cdcreatecanvasIUP(cdCanvas* canvas, void* user_data)
 #endif
   char* data;
 
+#if defined(__APPLE__)   /* CD_BASE_QUARTZ is an enum, so this cannot be an #ifdef */
+  if (cdBaseDriver() == CD_BASE_QUARTZ)
+  {
+    /* The Quartz native-window driver takes the NSView* itself as creation data. Use the MAIN
+       view, not ih->handle: for a scrolled canvas the handle is the enclosing NSScrollView.
+       Without this branch the code below asked for XDISPLAY/XWINDOW, which the Cocoa driver does
+       not provide, so every CD_IUP canvas failed and IupMatrix/IupCells could not map. */
+    data = (char*)iupCocoaGetMainView(ih_canvas);
+    if (!data)
+      return;
+  }
+  else
+#endif
   if (cdBaseDriver() == CD_BASE_GDK || /* this is also used by the Cairo driver when in GTK3 */
       cdBaseDriver() == CD_BASE_HAIKU)
   {

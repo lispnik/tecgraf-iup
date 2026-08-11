@@ -448,7 +448,7 @@ static void helperFontGetMultiLineStringSize(IupCocoaFont* iup_font, const char*
 	}
 }
 
-void iupdrvFontGetMultiLineStringSize(Ihandle* ih, const char* str, int *w, int *h)
+IUP_SDK_API void iupdrvFontGetMultiLineStringSize(Ihandle* ih, const char* str, int *w, int *h)
 {
 	/* This won't work because other callbacks assume the string size and then add padding on top of it.
 	id native_object = ih->handle;
@@ -467,7 +467,7 @@ void iupdrvFontGetMultiLineStringSize(Ihandle* ih, const char* str, int *w, int 
 	helperFontGetMultiLineStringSize(iup_font, str, w, h);
 }
 
-int iupdrvFontGetStringWidth(Ihandle* ih, const char* str)
+IUP_SDK_API int iupdrvFontGetStringWidth(Ihandle* ih, const char* str)
 {
 	size_t len;
 	char* line_end;
@@ -505,7 +505,7 @@ int iupdrvFontGetStringWidth(Ihandle* ih, const char* str)
 	return (int)ceil(size.width);
 }
 
-void iupdrvFontGetCharSize(Ihandle* ih, int *charwidth, int *charheight)
+IUP_SDK_API void iupdrvFontGetCharSize(Ihandle* ih, int *charwidth, int *charheight)
 {
 	IupCocoaFont* iup_font = cocoaFontGet(ih);
 	if(!iup_font)
@@ -519,7 +519,31 @@ void iupdrvFontGetCharSize(Ihandle* ih, int *charwidth, int *charheight)
 	if (charheight) *charheight = [iup_font charHeight];
 }
 
-void iupdrvFontGetTextSize(const char* font_name, const char* str, int len, int *w, int *h)
+IUP_SDK_API void iupdrvFontGetFontDim(const char* font, int *max_width, int *line_height, int *ascent, int *descent)
+{
+	IupCocoaFont* iup_font = cocoaFindFont(font);
+	if(!iup_font)
+	{
+		if (max_width)   *max_width = 0;
+		if (line_height) *line_height = 0;
+		if (ascent)      *ascent = 0;
+		if (descent)     *descent = 0;
+		return;
+	}
+
+	NSFont* ns_font = [iup_font nativeFont];
+
+	/* charWidth/charHeight are the cached boundingRectForFont width and
+	   defaultLineHeightForFont, so this stays consistent with iupdrvFontGetCharSize. */
+	if (max_width)   *max_width = [iup_font charWidth];
+	if (line_height) *line_height = [iup_font charHeight];
+
+	/* NSFont descender is negative (it measures below the baseline), but IUP wants a positive magnitude. */
+	if (ascent)      *ascent = iupROUND([ns_font ascender]);
+	if (descent)     *descent = iupROUND(-[ns_font descender]);
+}
+
+IUP_SDK_API void iupdrvFontGetTextSize(const char* font_name, const char* str, int len, int *w, int *h)
 {
 	IupCocoaFont* the_font = cocoaFindFont(font_name);
 	if(the_font)
