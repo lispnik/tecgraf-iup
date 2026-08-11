@@ -1149,6 +1149,182 @@ static NSView* cocoaCanvasGetRootView(Ihandle* ih)
 	return root_container_view;
 }
 
+/* ---------------------------------------------------------------------------
+   Canvas scrollbars -- native NSScrollView.
+
+   IUP and NSScrollView disagree about who owns the scrolling. IUP keeps the
+   canvas at the size of the VISIBLE area: XMIN..XMAX is a virtual space, DX/DY
+   the visible portion of it, POSX/POSY where that portion sits; on scroll the
+   driver updates POSX/POSY, fires SCROLL_CB and the application repaints the
+   visible window itself. NSScrollView instead scrolls an oversized document view.
+
+   Reconciled here by giving the scroll view a document view sized to the virtual
+   space (so the native scrollers get a correct range, proportion and appearance)
+   while pinning the canvas to the visible rectangle, so from IUP's point of view
+   the canvas never moves and stays visible-sized. Scrolling therefore produces
+   POSX/POSY + SCROLL_CB + a redraw, exactly as the other drivers do.
+
+   Using the real NSScrollView also means the scrollers follow the system
+   appearance and the "show scroll bars" preference -- a bare NSScroller does not
+   even draw unless a scroll view is driving it.
+   --------------------------------------------------------------------------- */
+
+/* Document view only defines the scrollable extent; it is never drawn.
+   Flipped so that its origin is top-left, matching IUP's POSY direction. */
+@interface IupCocoaCanvasDocumentView : NSView
+@end
+@implementation IupCocoaCanvasDocumentView
+- (BOOL) isFlipped { return YES; }
+@end
+
+@interface IupCocoaCanvasScrollView : NSScrollView
+@property(nonatomic, assign) Ihandle* iupHandle;
+@property(nonatomic, assign) NSView* iupCanvasView;
+- (void) iupSyncFromScroll;
+- (void) iupApplyRangeAndPosition;
+@end
+
+static double cocoaCanvasScrollScaleX(Ihandle* ih, NSScrollView* sv)
+{
+	double dx = iupAttribGetDouble(ih, "DX");
+	CGFloat vis = [[sv contentView] bounds].size.width;
+	if(dx <= 0.0 || vis <= 0.0) { return 1.0; }
+	return (double)vis / dx;
+}
+static double cocoaCanvasScrollScaleY(Ihandle* ih, NSScrollView* sv)
+{
+	double dy = iupAttribGetDouble(ih, "DY");
+	CGFloat vis = [[sv contentView] bounds].size.height;
+	if(dy <= 0.0 || vis <= 0.0) { return 1.0; }
+	return (double)vis / dy;
+}
+
+@implementation IupCocoaCanvasScrollView
+
+/* Keep the canvas covering exactly the visible rectangle, so it never scrolls away. */
+- (void) iupPinCanvas
+{
+	NSRect vis = [self documentVisibleRect];
+	NSView* canvas = [self iupCanvasView];
+	if(nil == canvas) { return; }
+	if(!NSEqualRects([canvas frame], vis))
+	{
+		[canvas setFrame:vis];
+	}
+}
+
+/* The user scrolled: translate the clip origin back into IUP's POSX/POSY. */
+- (void) iupSyncFromScroll
+{
+	Ihandle* ih = [self iupHandle];
+	NSRect vis;
+	double sx, sy, posx, posy;
+	if(NULL == ih) { return; }
+
+	[self iupPinCanvas];
+
+	vis = [self documentVisibleRect];
+	sx = cocoaCanvasScrollScaleX(ih, self);
+	sy = cocoaCanvasScrollScaleY(ih, self);
+	posx = iupAttribGetDouble(ih, "XMIN") + (double)vis.origin.x / sx;
+	posy = iupAttribGetDouble(ih, "YMIN") + (double)vis.origin.y / sy;
+
+	if(posx != (double)ih->data->posx || posy != (double)ih->data->posy)
+	{
+		int op_x = (posx != (double)ih->data->posx);
+		ih->data->posx = (float)posx;
+		ih->data->posy = (float)posy;
+		{
+			IFniff cb = (IFniff)IupGetCallback(ih, "SCROLL_CB");
+			if(cb) { cb(ih, op_x ? IUP_SBPOSH : IUP_SBPOSV, ih->data->posx, ih->data->posy); }
+		}
+		[[self iupCanvasView] setNeedsDisplay:YES];
+	}
+}
+
+/* Push XMIN/XMAX/DX/POSX (and Y) into the document size and scroll position. */
+- (void) iupApplyRangeAndPosition
+{
+	Ihandle* ih = [self iupHandle];
+	NSView* doc = [self documentView];
+	double xrange, yrange, sx, sy;
+	NSSize doc_size;
+	NSRect vis;
+	if(NULL == ih || nil == doc) { return; }
+
+	xrange = iupAttribGetDouble(ih, "XMAX") - iupAttribGetDouble(ih, "XMIN");
+	yrange = iupAttribGetDouble(ih, "YMAX") - iupAttribGetDouble(ih, "YMIN");
+	sx = cocoaCanvasScrollScaleX(ih, self);
+	sy = cocoaCanvasScrollScaleY(ih, self);
+
+	vis = [[self contentView] bounds];
+	doc_size.width  = (xrange > 0.0) ? (CGFloat)(xrange * sx) : vis.size.width;
+	doc_size.height = (yrange > 0.0) ? (CGFloat)(yrange * sy) : vis.size.height;
+	if(doc_size.width  < vis.size.width)  { doc_size.width  = vis.size.width; }
+	if(doc_size.height < vis.size.height) { doc_size.height = vis.size.height; }
+
+	if(!NSEqualSizes([doc frame].size, doc_size))
+	{
+		[doc setFrameSize:doc_size];
+	}
+
+	{
+		NSPoint want = NSMakePoint(
+			(CGFloat)((ih->data->posx - iupAttribGetDouble(ih, "XMIN")) * sx),
+			(CGFloat)((ih->data->posy - iupAttribGetDouble(ih, "YMIN")) * sy));
+		NSPoint cur = [[self contentView] bounds].origin;
+		if(fabs(want.x - cur.x) > 0.5 || fabs(want.y - cur.y) > 0.5)
+		{
+			[[self contentView] scrollToPoint:want];
+			[self reflectScrolledClipView:[self contentView]];
+		}
+	}
+	[self iupPinCanvas];
+}
+
+- (void) iupClipBoundsChanged:(NSNotification*)note
+{
+	[self iupSyncFromScroll];
+}
+
+/* -tile is where NSScrollView positions the clip view and the scrollers, so the visible
+   rectangle is only final afterwards. Pin the canvas here or it keeps the pre-tile size and
+   ends up wider than the clip by exactly the scroller thickness. */
+- (void) tile
+{
+	[super tile];
+	[self iupPinCanvas];
+}
+
+/* NOT -layout: that runs inside AppKit's display pass, and moving subviews there lands inside
+   CD's lockFocusIfCanDraw/unlockFocus block and corrupts the focus stack. */
+- (void) resizeSubviewsWithOldSize:(NSSize)old_size
+{
+	[super resizeSubviewsWithOldSize:old_size];
+	[self iupApplyRangeAndPosition];
+}
+
+@end
+
+static IupCocoaCanvasScrollView* cocoaCanvasGetScrollContainer(Ihandle* ih)
+{
+	id root = (id)ih->handle;
+	if([root isKindOfClass:[IupCocoaCanvasScrollView class]])
+	{
+		return (IupCocoaCanvasScrollView*)root;
+	}
+	return nil;
+}
+
+/* Called from the DX/DY/POSX/POSY setters. */
+static void cocoaCanvasUpdateScroller(Ihandle* ih, int is_vert)
+{
+	IupCocoaCanvasScrollView* sv = cocoaCanvasGetScrollContainer(ih);
+	(void)is_vert;
+	if(nil != sv) { [sv iupApplyRangeAndPosition]; }
+}
+
+
 static NSScrollView* cocoaCanvasGetScrollView(Ihandle* ih)
 {
 	if(iupAttribGetBoolean(ih, "_IUPCOCOA_CANVAS_HAS_SCROLLBAR"))
@@ -1165,14 +1341,13 @@ static NSScrollView* cocoaCanvasGetScrollView(Ihandle* ih)
 
 static IupCocoaCanvasView* cocoaCanvasGetCanvasView(Ihandle* ih)
 {
-	if(iupAttribGetBoolean(ih, "_IUPCOCOA_CANVAS_HAS_SCROLLBAR"))
 	{
-		NSScrollView* scroll_view = cocoaCanvasGetScrollView(ih);
-		IupCocoaCanvasView* canvas_view = (IupCocoaCanvasView*)[scroll_view documentView];
-		NSCAssert([canvas_view isKindOfClass:[IupCocoaCanvasView class]], @"Expected IupCocoaCanvasView");
-		return canvas_view;
+		IupCocoaCanvasScrollView* container = cocoaCanvasGetScrollContainer(ih);
+		if(nil != container)
+		{
+			return (IupCocoaCanvasView*)[container iupCanvasView];
+		}
 	}
-	else
 	{
 		IupCocoaCanvasView* canvas_view = (IupCocoaCanvasView*)ih->handle;
 		return canvas_view;
@@ -1260,15 +1435,36 @@ static int cocoaCanvasMapMethod(Ihandle* ih)
 	
 	if(iupAttribGetBoolean(ih, "SCROLLBAR"))
 	{
-		NSScrollView* scroll_view = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-		[scroll_view setDocumentView:canvas_view];
+		/* Native scroll view: it owns the real NSScrollers, so they match the system
+		   appearance and honour the "show scroll bars" preference. The document view only
+		   defines the scrollable extent; the canvas is pinned to the visible rectangle so
+		   IUP still sees a canvas that never moves and is always visible-sized. */
+		IupCocoaCanvasScrollView* container = [[IupCocoaCanvasScrollView alloc] initWithFrame:NSMakeRect(0,0,120,120)];
+		IupCocoaCanvasDocumentView* doc_view = [[IupCocoaCanvasDocumentView alloc] initWithFrame:NSMakeRect(0,0,120,120)];
+
+		[container setHasVerticalScroller:YES];
+		[container setHasHorizontalScroller:YES];
+		[container setAutohidesScrollers:NO];
+		[container setDrawsBackground:NO];
+		[container setDocumentView:doc_view];
+		[container setIupHandle:ih];
+		[container setIupCanvasView:canvas_view];
+
+		[canvas_view setFrame:[container documentVisibleRect]];
+		[doc_view addSubview:canvas_view];
 		[canvas_view release];
-		[scroll_view setHasVerticalScroller:YES];
-	
-		[scroll_view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-		[canvas_view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-		
-		root_view = scroll_view;
+		[doc_view release];
+
+		/* watch the clip view so user scrolling turns into POSX/POSY + SCROLL_CB */
+		[[container contentView] setPostsBoundsChangedNotifications:YES];
+		[[NSNotificationCenter defaultCenter] addObserver:container
+			selector:@selector(iupClipBoundsChanged:)
+			name:NSViewBoundsDidChangeNotification
+			object:[container contentView]];
+
+		[container setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+
+		root_view = container;
 		iupAttribSet(ih, "_IUPCOCOA_CANVAS_HAS_SCROLLBAR", "1");
 	}
 	else
@@ -1363,13 +1559,15 @@ static void cocoaCanvasUnMapMethod(Ihandle* ih)
 */
 static int cocoaCanvasSetDXAttrib(Ihandle* ih, const char* value)
 {
-	(void)ih; (void)value;
-	return 1;  /* store as a normal attribute */
+	double dx;
+	if(iupStrToDouble(value, &dx)) { iupAttribSetDouble(ih, "DX", dx); cocoaCanvasUpdateScroller(ih, 0); }
+	return 1;
 }
 
 static int cocoaCanvasSetDYAttrib(Ihandle* ih, const char* value)
 {
-	(void)ih; (void)value;
+	double dy;
+	if(iupStrToDouble(value, &dy)) { iupAttribSetDouble(ih, "DY", dy); cocoaCanvasUpdateScroller(ih, 1); }
 	return 1;
 }
 
@@ -1379,6 +1577,7 @@ static int cocoaCanvasSetPosXAttrib(Ihandle* ih, const char* value)
 	if(iupStrToDouble(value, &posx))
 	{
 		ih->data->posx = (float)posx;
+		cocoaCanvasUpdateScroller(ih, 0);
 	}
 	return 1;
 }
@@ -1389,6 +1588,7 @@ static int cocoaCanvasSetPosYAttrib(Ihandle* ih, const char* value)
 	if(iupStrToDouble(value, &posy))
 	{
 		ih->data->posy = (float)posy;
+		cocoaCanvasUpdateScroller(ih, 1);
 	}
 	return 1;
 }
