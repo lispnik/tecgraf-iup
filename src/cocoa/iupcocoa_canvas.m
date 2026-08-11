@@ -109,7 +109,10 @@
 {
 	Ihandle* ih = _ih;
 
-	[self lockFocus];
+	/* Do NOT lockFocus here. AppKit has already made the correct context current for drawRect:,
+	   and -lockFocus is deprecated and unsupported for layer-backed views: it swaps in a different
+	   context, so everything drawn from the ACTION callback went somewhere that is never
+	   composited and the canvas came up empty. */
 
 	// Obtain the Quartz context from the current NSGraphicsContext at the time the view's
 	// drawRect method is called. This context is only appropriate for drawing in this invocation
@@ -141,8 +144,6 @@
 		call_back(ih, ih->data->posx, ih->data->posy);
 	}
 	CGContextRestoreGState(cg_context);
-
-	[self unlockFocus];
 }
 
 
