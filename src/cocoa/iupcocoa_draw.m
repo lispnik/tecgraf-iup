@@ -22,6 +22,7 @@
 #include "iup_draw.h"
 #include "iupcocoa_draw.h"
 #include "iupcocoa_canvas.h"
+#include "iupcocoa_drv.h"   /* iupCocoaGetMainView */
 
 
 
@@ -81,13 +82,25 @@ IdrawCanvas* iupdrvDrawCreateCanvas(Ihandle* ih)
 	dc->ih = ih;
 
 	// We'll set the dc directly from here this time, but all other places will set the dc in the IupCanvasView
-	IupCocoaCanvasView* canvas_view =(IupCocoaCanvasView*)ih->handle;
-	CGRect frame_rect = [canvas_view frame];
+	/* ih->handle is the ROOT view, which for a scrolled canvas is the enclosing NSScrollView, not
+	   the canvas itself. Casting it directly sent -graphicsContext/-CGContext to an NSScrollView
+	   and aborted with "unrecognized selector" (IupMatrix, IupExpander, ...).
+	   The canvas is registered as the MAIN view by cocoaCanvasMapMethod, so ask for that. */
+	IupCocoaCanvasView* canvas_view = (IupCocoaCanvasView*)iupCocoaGetMainView(ih);
+	if(![canvas_view isKindOfClass:[IupCocoaCanvasView class]])
+	{
+		canvas_view = nil;
+	}
+
+	/* Never return NULL: callers such as iup_expander.c:970 and iup_flatbutton.c:71 dereference
+	   the result immediately without checking. Fall back to the root view purely for sizing. */
+	NSView* size_view = canvas_view ? (NSView*)canvas_view : iupCocoaGetRootView(ih);
+	CGRect frame_rect = size_view ? [size_view frame] : CGRectMake(0, 0, 1, 1);
 
 	// Should we retain? It is implied these will outlive our dc, so we shouldn't need to.
 	dc->canvasView = canvas_view;
-	dc->graphicsContext = [canvas_view graphicsContext];
-	dc->cgContext = [canvas_view CGContext];
+	dc->graphicsContext = canvas_view ? [canvas_view graphicsContext] : nil;
+	dc->cgContext = canvas_view ? [canvas_view CGContext] : NULL;
 
 	// [dc->canvasView retain];
 	// [dc->graphicsContext retain];
@@ -101,14 +114,42 @@ IdrawCanvas* iupdrvDrawCreateCanvas(Ihandle* ih)
 
 
 
-	NSCAssert(dc->cgContext != NULL, @"CGContextRef should not be NULL");
+	/* IUP asks for a draw canvas from redraw callbacks that can run outside an actual draw cycle
+	   (notably during IupMap), and there [NSGraphicsContext currentContext] is nil, so the view
+	   hands back a NULL CGContextRef. Aborting there killed IupMatrix, IupExpander and friends.
+	   Fall back to a scratch offscreen bitmap: the drawing is discarded, but the widget paints
+	   correctly on the next real drawRect: and nothing crashes. */
+	if(NULL == dc->cgContext)
+	{
+		size_t bmp_w = (size_t)(dc->w > 1.0 ? dc->w : 1.0);
+		size_t bmp_h = (size_t)(dc->h > 1.0 ? dc->h : 1.0);
+		CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
 
-	
+		dc->cgContext = CGBitmapContextCreate(NULL, bmp_w, bmp_h, 8, 0, color_space,
+			(CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+		CGColorSpaceRelease(color_space);
+
+		if(NULL == dc->cgContext)
+		{
+			/* Nothing more we can do; leave the dc valid but contextless rather than returning
+			   NULL, which callers do not check for. */
+			return dc;
+		}
+		dc->ownsContext = true;
+		dc->graphicsContext = [NSGraphicsContext graphicsContextWithCGContext:dc->cgContext flipped:YES];
+	}
+
 	return dc;
 }
 
 void iupdrvDrawKillCanvas(IdrawCanvas* dc)
 {
+	/* Release the scratch bitmap if we created one (see iupdrvDrawCreateCanvas). */
+	if(dc->ownsContext && NULL != dc->cgContext)
+	{
+		CGContextRelease(dc->cgContext);
+		dc->ownsContext = false;
+	}
 	// We are no longer retaining the context
 	//	CGContextRelease(dc->cgContext);
 	// [dc->graphicsContext release];

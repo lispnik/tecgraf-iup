@@ -41,15 +41,24 @@ static NSView* cocoaLabelGetRootView(Ihandle* ih)
 
 static NSTextField* cocoaLabelGetTextField(Ihandle* ih)
 {
-	NSTextField* text_field = (NSTextField*)cocoaLabelGetRootView(ih);
-	NSCAssert([text_field isKindOfClass:[NSTextField class]], @"Expected NSTextField");
-	return text_field;
+	/* An IupLabel is not always a text field: SEPARATOR and IMAGE labels map to other views.
+	   Asserting here aborted the process (e.g. IupGetParam builds separator labels and then sets
+	   TITLE on them). Every caller already tests the result for nil, so return nil instead. */
+	NSView* root_container_view = cocoaLabelGetRootView(ih);
+	if(![root_container_view isKindOfClass:[NSTextField class]])
+	{
+		return nil;
+	}
+	return (NSTextField*)root_container_view;
 }
 
 static NSImageView* cocoaLabelGetImageView(Ihandle* ih)
 {
 	NSView* root_container_view = cocoaLabelGetRootView(ih);
-	NSCAssert([root_container_view isKindOfClass:[NSImageView class]], @"Expected NSImageView");
+	if(![root_container_view isKindOfClass:[NSImageView class]])
+	{
+		return nil;
+	}
 	return (NSImageView*)root_container_view;
 }
 

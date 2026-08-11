@@ -1637,6 +1637,14 @@ static int cocoaListMapMethod(Ihandle* ih)
 			break;
 		}
 	}
+
+	/* The unsupported subtypes above leave root_view nil. Falling through would assign a NULL
+	   ih->handle and then trip the NSCAssert in iupCocoaSetAssociatedViews, aborting the whole
+	   process. Fail this element gracefully instead so the rest of the dialog still maps. */
+	if(nil == root_view)
+	{
+		return IUP_ERROR;
+	}
 	
 	
 	

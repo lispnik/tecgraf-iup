@@ -12,9 +12,13 @@ struct _IdrawCanvas
 	IupCocoaCanvasView* canvasView;
 	NSGraphicsContext* graphicsContext;
 	Ihandle* ih;
-	
+
 	CGFloat w, h;
 	bool useNativeFocusRing;
+	/* True when cgContext is an offscreen bitmap we created because there was no current
+	   NSGraphicsContext (drawing requested outside a draw cycle, e.g. during IupMap).
+	   iupdrvDrawKillCanvas must release it. */
+	bool ownsContext;
 /*
 	int draw_focus;
 	int focus_x1;
