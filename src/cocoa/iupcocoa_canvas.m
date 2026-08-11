@@ -1348,6 +1348,51 @@ static void cocoaCanvasUnMapMethod(Ihandle* ih)
 
 
 
+/* Canvas scroll attributes.
+
+   These are registered so that DX/DY/POSX/POSY exist on the Cocoa canvas class and round-trip
+   through IUP. They intentionally do NOT drive a native scroller yet: IUP keeps the canvas at the
+   size of the visible area and expects the driver to supply separate scrollbars that update
+   POSX/POSY and request a redraw, which NSScrollView cannot express (it scrolls an oversized
+   document view instead). An attempt to place real NSScrollers alongside the canvas conflicted
+   with CD's Quartz driver, which calls -lockFocusIfCanDraw/-unlockFocus on the canvas view and
+   trips "Unlocking Focus on wrong view" when a layout pass runs inside that block.
+
+   Registering them still matters: iup_flatscrollbar.c captures the canvas class's handlers at
+   registration time and chains to them, so leaving them unregistered left NULL function pointers.
+*/
+static int cocoaCanvasSetDXAttrib(Ihandle* ih, const char* value)
+{
+	(void)ih; (void)value;
+	return 1;  /* store as a normal attribute */
+}
+
+static int cocoaCanvasSetDYAttrib(Ihandle* ih, const char* value)
+{
+	(void)ih; (void)value;
+	return 1;
+}
+
+static int cocoaCanvasSetPosXAttrib(Ihandle* ih, const char* value)
+{
+	double posx;
+	if(iupStrToDouble(value, &posx))
+	{
+		ih->data->posx = (float)posx;
+	}
+	return 1;
+}
+
+static int cocoaCanvasSetPosYAttrib(Ihandle* ih, const char* value)
+{
+	double posy;
+	if(iupStrToDouble(value, &posy))
+	{
+		ih->data->posy = (float)posy;
+	}
+	return 1;
+}
+
 void iupdrvCanvasInitClass(Iclass* ic)
 {
 	/* Driver Dependent Class functions */
@@ -1366,12 +1411,10 @@ void iupdrvCanvasInitClass(Iclass* ic)
 #endif
 	iupClassRegisterAttribute(ic, "DRAWSIZE", cocoaCanvasGetDrawSizeAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
 	
-#if 0
-	iupClassRegisterAttribute(ic, "DX", NULL, gtkCanvasSetDXAttrib, NULL, NULL, IUPAF_NO_INHERIT);  /* force new default value */
-	iupClassRegisterAttribute(ic, "DY", NULL, gtkCanvasSetDYAttrib, NULL, NULL, IUPAF_NO_INHERIT);  /* force new default value */
-	iupClassRegisterAttribute(ic, "POSX", iupCanvasGetPosXAttrib, gtkCanvasSetPosXAttrib, "0", NULL, IUPAF_NO_INHERIT);  /* force new default value */
-	iupClassRegisterAttribute(ic, "POSY", iupCanvasGetPosYAttrib, gtkCanvasSetPosYAttrib, "0", NULL, IUPAF_NO_INHERIT);  /* force new default value */
-#endif
+	iupClassRegisterAttribute(ic, "DX", NULL, cocoaCanvasSetDXAttrib, NULL, NULL, IUPAF_NO_INHERIT);  /* force new default value */
+	iupClassRegisterAttribute(ic, "DY", NULL, cocoaCanvasSetDYAttrib, NULL, NULL, IUPAF_NO_INHERIT);  /* force new default value */
+	iupClassRegisterAttribute(ic, "POSX", iupCanvasGetPosXAttrib, cocoaCanvasSetPosXAttrib, "0", NULL, IUPAF_NO_INHERIT);  /* force new default value */
+	iupClassRegisterAttribute(ic, "POSY", iupCanvasGetPosYAttrib, cocoaCanvasSetPosYAttrib, "0", NULL, IUPAF_NO_INHERIT);  /* force new default value */
 	
 	// TODO: Returns the CGContext. Is this the right thing, or should it be the NSGraphicsContext? Or should it be the NSView?
 	iupClassRegisterAttribute(ic, "DRAWABLE", cocoaCanvasGetDrawableAttrib, NULL, NULL, NULL, IUPAF_NO_STRING);
