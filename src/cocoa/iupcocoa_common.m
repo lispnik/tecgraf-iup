@@ -800,8 +800,12 @@ int iupdrvBaseSetCursorAttrib(Ihandle* ih, const char* value)
 
 int iupdrvGetScrollbarSize(void)
 {
-
-  return 0;
+  /* Was 0, which told every caller that a scrollbar occupies no space at all; IupCanvas users
+     compute their drawable area by subtracting this (see the simple_paint tutorial). Report the
+     width of a legacy scroller, which is the style the canvas uses precisely so that the space
+     it reserves is real. */
+  return iupROUND([NSScroller scrollerWidthForControlSize:NSControlSizeRegular
+                                             scrollerStyle:NSScrollerStyleLegacy]);
 }
 
 /*

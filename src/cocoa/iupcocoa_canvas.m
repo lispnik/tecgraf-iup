@@ -1602,7 +1602,13 @@ static int cocoaCanvasMapMethod(Ihandle* ih)
 	}
 	IupCocoaCanvasView* canvas_view = [[IupCocoaCanvasView alloc] initWithFrame:initial_rect ih:ih];
 	
-	if(iupAttribGetBoolean(ih, "SCROLLBAR"))
+	/* Record the scrollbar configuration the way gtk/win do. Without this ih->data->sb stays 0,
+	   so IupGetAttribute(canvas, "SCROLLBAR") reported "NO" even for a canvas created with
+	   SCROLLBAR=Yes (iCanvasGetScrollbarAttrib derives its answer from ih->data->sb), and the
+	   core's drawing-size maths had no idea a scrollbar was present. */
+	ih->data->sb = iupBaseGetScrollbar(ih);
+
+	if(ih->data->sb != IUP_SB_NONE)
 	{
 		/* Native scroll view: it owns the real NSScrollers, so they match the system
 		   appearance and honour the "show scroll bars" preference. The document view only
@@ -1611,9 +1617,15 @@ static int cocoaCanvasMapMethod(Ihandle* ih)
 		IupCocoaCanvasScrollView* container = [[IupCocoaCanvasScrollView alloc] initWithFrame:initial_rect];
 		IupCocoaCanvasDocumentView* doc_view = [[IupCocoaCanvasDocumentView alloc] initWithFrame:initial_rect];
 
-		[container setHasVerticalScroller:YES];
-		[container setHasHorizontalScroller:YES];
+		[container setHasVerticalScroller:(ih->data->sb & IUP_SB_VERT) ? YES : NO];
+		[container setHasHorizontalScroller:(ih->data->sb & IUP_SB_HORIZ) ? YES : NO];
 		[container setAutohidesScrollers:NO];
+		/* IUP's scroll model assumes scrollbars that are always visible and reserve space -- the
+		   application subtracts SCROLLBARSIZE to work out the drawable area (see the DX/DY
+		   computation in the simple_paint tutorial). macOS overlay scrollers reserve nothing and
+		   fade out when idle, so the canvas would silently disagree with the app about its own
+		   size. These are still real NSScrollers, just in the legacy always-visible style. */
+		[container setScrollerStyle:NSScrollerStyleLegacy];
 		[container setDrawsBackground:NO];
 		[container setDocumentView:doc_view];
 		[container setIupHandle:ih];
