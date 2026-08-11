@@ -91,59 +91,203 @@
 {
 	NSNotificationCenter* notification_center = [NSNotificationCenter defaultCenter];
 	[notification_center removeObserver:self];
+	[self iupInvalidateBackingStore];
 	[self setBackgroundColor:nil];
 	[super dealloc];
 }
 
+- (bool) iupInsideDrawRect
+{
+	return _insideDrawRect;
+}
+
+- (void) iupInvalidateBackingStore
+{
+	if(NULL != _backingContext)
+	{
+		CGContextRelease(_backingContext);
+		_backingContext = NULL;
+	}
+	_backingWidth = 0;
+	_backingHeight = 0;
+}
+
+/* Create (or recreate) the offscreen bitmap the canvas actually draws into.
+   Its base transform puts the origin at the TOP-left and works in points, so drawing code sees
+   the same coordinate system it always did. */
+- (void) iupEnsureBackingStore
+{
+	NSRect bounds_rect = [self bounds];
+	CGFloat scale = [[self window] backingScaleFactor];
+	size_t want_w;
+	size_t want_h;
+
+	if(scale <= 0.0) { scale = 1.0; }
+	want_w = (size_t)(bounds_rect.size.width  * scale);
+	want_h = (size_t)(bounds_rect.size.height * scale);
+	if(want_w < 1) { want_w = 1; }
+	if(want_h < 1) { want_h = 1; }
+
+	/* CD's Quartz driver captures the CGContextRef once, at cdCreateCanvas time -- when the view
+	   is still 0x0 -- and reuses it forever. So the backing store must never be replaced while
+	   the canvas lives, or CD ends up drawing into a released context. Allocate generously and
+	   only ever grow; a larger bitmap with the right transform is harmless. */
+	if((NULL != _backingContext) && (want_w <= _backingWidth) && (want_h <= _backingHeight))
+	{
+		/* reset the transform for the current size and keep the same allocation */
+		CGContextRestoreGState(_backingContext);
+		CGContextSaveGState(_backingContext);
+		return;
+	}
+
+	if(want_w < 1024) { want_w = 1024; }
+	if(want_h < 1024) { want_h = 1024; }
+
+	[self iupInvalidateBackingStore];
+
+	{
+		CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+		_backingContext = CGBitmapContextCreate(NULL, want_w, want_h, 8, 0, color_space,
+			(CGBitmapInfo)kCGImageAlphaPremultipliedLast);
+		CGColorSpaceRelease(color_space);
+	}
+	if(NULL == _backingContext) { return; }
+
+	_backingWidth = want_w;
+	_backingHeight = want_h;
+	_backingScale = scale;
+
+	/* points, origin top-left. Anchored to the TOP of the (possibly oversized) bitmap so the
+	   visible area is always the top-left corner of it. */
+	CGContextScaleCTM(_backingContext, scale, scale);
+	CGContextTranslateCTM(_backingContext, 0.0, (CGFloat)want_h / scale);
+	CGContextScaleCTM(_backingContext, 1.0, -1.0);
+	/* everything after this is the caller's; remember it as the base state */
+	CGContextSaveGState(_backingContext);
+}
+
+/* CD's Quartz driver draws by locking focus on this view rather than by asking us for a
+   context, and -lockFocus does not produce visible output for a layer-backed view -- which is
+   why anything IupCells/IupMatrix rendered outside drawRect: vanished. Redirect focus locking
+   at the persistent backing store so that drawing always lands somewhere durable, and ask for a
+   repaint so drawRect: blits it. */
+
+- (BOOL) lockFocusIfCanDraw
+{
+	[self iupEnsureBackingStore];
+	if(NULL == _backingContext)
+	{
+		return NO;
+	}
+	{
+		NSGraphicsContext* backing_ns = [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:YES];
+		[NSGraphicsContext saveGraphicsState];
+		[NSGraphicsContext setCurrentContext:backing_ns];
+	}
+	_focusLockDepth++;
+	return YES;
+}
+
+- (void) lockFocus
+{
+	(void)[self lockFocusIfCanDraw];
+}
+
+- (void) unlockFocus
+{
+	if(_focusLockDepth <= 0)
+	{
+		return;   /* unbalanced unlock from a driver; ignore rather than corrupt the stack */
+	}
+	_focusLockDepth--;
+	[NSGraphicsContext restoreGraphicsState];
+	if(!_insideDrawRect)
+	{
+		[self setNeedsDisplay:YES];
+	}
+}
+
 - (NSGraphicsContext*) graphicsContext
 {
-	return [NSGraphicsContext currentContext];
+	[self iupEnsureBackingStore];
+	if(NULL == _backingContext) { return [NSGraphicsContext currentContext]; }
+	return [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:YES];
 }
 
 - (CGContextRef) CGContext
 {
-	return [[NSGraphicsContext currentContext] CGContext];
+	[self iupEnsureBackingStore];
+	if(!_insideDrawRect)
+	{
+		/* Someone (CD, IupDraw) is drawing outside a draw cycle. It lands in the backing store,
+		   so ask for a repaint to get it on screen. */
+		[self setNeedsDisplay:YES];
+	}
+	return _backingContext;
 }
 
 - (void) drawRect:(NSRect)the_rect
 {
 	Ihandle* ih = _ih;
+	CGContextRef screen_context = [[NSGraphicsContext currentContext] CGContext];
+	NSRect bounds_rect = [self bounds];
 
-	/* Do NOT lockFocus here. AppKit has already made the correct context current for drawRect:,
-	   and -lockFocus is deprecated and unsupported for layer-backed views: it swaps in a different
-	   context, so everything drawn from the ACTION callback went somewhere that is never
-	   composited and the canvas came up empty. */
-
-	// Obtain the Quartz context from the current NSGraphicsContext at the time the view's
-	// drawRect method is called. This context is only appropriate for drawing in this invocation
-	// of the drawRect method.
-	// Interesting: graphicsPort is deprecated in 10.10
-	// CGContextRef cg_context = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
-	// Use [[NSGraphicsContext currentContext] CGContext] in 10.10+
-	CGContextRef cg_context = [[NSGraphicsContext currentContext] CGContext];
-	
-	
-	CGContextSaveGState(cg_context);
-
-	// IUP has inverted y-coordinates compared to Cocoa (which uses Cartesian like OpenGL and your math books)
-	// If we are clever, we can invert the transform matrix so that the rest of the drawing code doesn't need to care.
+	[self iupEnsureBackingStore];
+	if(NULL == _backingContext)
 	{
-		// just inverting the y-scale causes the rendered area to flip off-screen. So we need to shift the canvas so it is centered before inverting it.
-		CGFloat translate_y = the_rect.size.height * 0.5;
-		CGContextTranslateCTM(cg_context, 0.0, +translate_y);
-		CGContextScaleCTM(cg_context, 1.0,  -1.0);
-		CGContextTranslateCTM(cg_context, 0.0, -translate_y);
+		return;
 	}
-	
-	[[self backgroundColor] set];
-    NSRectFill(the_rect);
-	
-	IFnff call_back = (IFnff)IupGetCallback(ih, "ACTION");
-	if(call_back)
+
+	/* Render into the backing store. The ACTION callback runs here so that anything it draws is
+	   included in this frame; controls that instead rendered off-cycle have already put their
+	   content in the backing store and simply survive. */
+	_insideDrawRect = true;
 	{
-		call_back(ih, ih->data->posx, ih->data->posy);
+		NSGraphicsContext* backing_ns = [NSGraphicsContext graphicsContextWithCGContext:_backingContext flipped:YES];
+		[NSGraphicsContext saveGraphicsState];
+		[NSGraphicsContext setCurrentContext:backing_ns];
+		CGContextSaveGState(_backingContext);
+
+		[[self backgroundColor] set];
+		NSRectFill(bounds_rect);
+
+		{
+			IFnff call_back = (IFnff)IupGetCallback(ih, "ACTION");
+			if(call_back)
+			{
+				call_back(ih, ih->data->posx, ih->data->posy);
+			}
+		}
+
+		CGContextRestoreGState(_backingContext);
+		[NSGraphicsContext restoreGraphicsState];
 	}
-	CGContextRestoreGState(cg_context);
+	_insideDrawRect = false;
+
+	/* Blit the backing store to the screen. */
+	{
+		CGImageRef full = CGBitmapContextCreateImage(_backingContext);
+		CGImageRef image = NULL;
+		if(NULL != full)
+		{
+			/* the live area is the top-left corner of the bitmap */
+			/* CGImageCreateWithImageInRect uses a TOP-left origin, and the live area is the
+			   top-left corner of the bitmap, so the crop starts at (0,0). */
+			CGRect crop = CGRectMake(0.0, 0.0,
+				bounds_rect.size.width  * _backingScale,
+				bounds_rect.size.height * _backingScale);
+			image = CGImageCreateWithImageInRect(full, crop);
+			CGImageRelease(full);
+		}
+		if(NULL != image)
+		{
+			/* The backing store's base transform already puts IUP's origin at the top-left, so
+			   its memory layout matches the (unflipped) screen context. Do not flip again here. */
+			CGContextDrawImage(screen_context,
+				CGRectMake(0.0, 0.0, bounds_rect.size.width, bounds_rect.size.height), image);
+			CGImageRelease(image);
+		}
+	}
 }
 
 
@@ -168,7 +312,8 @@
 	}
 
 	[self setPreviousSize:view_frame.size];
-	
+	/* deliberately NOT invalidating the backing store here -- see iupEnsureBackingStore */
+
 	IFnii call_back = (IFnii)IupGetCallback(ih, "RESIZE_CB");
 	if(call_back)
 	{
@@ -1431,7 +1576,31 @@ static int cocoaCanvasSetContextMenuAttrib(Ihandle* ih, const char* value)
 static int cocoaCanvasMapMethod(Ihandle* ih)
 {
 	NSView* root_view = nil;
-	IupCocoaCanvasView* canvas_view = [[IupCocoaCanvasView alloc] initWithFrame:NSZeroRect ih:ih];
+	/* Give the view a real size before anything else runs. Controls create their CD canvas from
+	   their Map method, and CD's Quartz driver captures the canvas size at creation time -- with
+	   a 0x0 view it sizes its (double) buffer far too small and only a corner of the content ever
+	   appears. IUP has already computed a natural size by this point. */
+	NSRect initial_rect;
+	{
+		/* Controls create their CD canvas from their own Map method, moments after this one, and
+		   CD sizes its (double) buffer and clip from the view as it is at that instant -- it never
+		   grows them afterwards, so anything drawn beyond that initial size is silently clipped
+		   (IupCells rendered only a corner of its checkerboard). IUP has not laid out yet, so
+		   currentwidth/naturalwidth are still 0 here; use whatever it does know, and otherwise
+		   fall back to something at least as large as the screen so the buffer is never the
+		   limiting factor. The view is resized to its real size immediately afterwards. */
+		int init_w = ih->currentwidth  > 0 ? ih->currentwidth  : ih->naturalwidth;
+		int init_h = ih->currentheight > 0 ? ih->currentheight : ih->naturalheight;
+		if(init_w < 1 || init_h < 1)
+		{
+			int screen_w = 0, screen_h = 0;
+			iupdrvGetFullSize(&screen_w, &screen_h);
+			if(init_w < 1) { init_w = (screen_w > 0) ? screen_w : 1600; }
+			if(init_h < 1) { init_h = (screen_h > 0) ? screen_h : 1200; }
+		}
+		initial_rect = NSMakeRect(0.0, 0.0, (CGFloat)init_w, (CGFloat)init_h);
+	}
+	IupCocoaCanvasView* canvas_view = [[IupCocoaCanvasView alloc] initWithFrame:initial_rect ih:ih];
 	
 	if(iupAttribGetBoolean(ih, "SCROLLBAR"))
 	{
@@ -1439,8 +1608,8 @@ static int cocoaCanvasMapMethod(Ihandle* ih)
 		   appearance and honour the "show scroll bars" preference. The document view only
 		   defines the scrollable extent; the canvas is pinned to the visible rectangle so
 		   IUP still sees a canvas that never moves and is always visible-sized. */
-		IupCocoaCanvasScrollView* container = [[IupCocoaCanvasScrollView alloc] initWithFrame:NSMakeRect(0,0,120,120)];
-		IupCocoaCanvasDocumentView* doc_view = [[IupCocoaCanvasDocumentView alloc] initWithFrame:NSMakeRect(0,0,120,120)];
+		IupCocoaCanvasScrollView* container = [[IupCocoaCanvasScrollView alloc] initWithFrame:initial_rect];
+		IupCocoaCanvasDocumentView* doc_view = [[IupCocoaCanvasDocumentView alloc] initWithFrame:initial_rect];
 
 		[container setHasVerticalScroller:YES];
 		[container setHasHorizontalScroller:YES];

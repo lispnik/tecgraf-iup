@@ -26,6 +26,16 @@ struct _IdrawCanvas;
 	bool _isCurrentKeyWindow;
 	bool _isCurrentFirstResponder;
 	bool _startedDrag;
+	/* Persistent backing store. IUP controls such as IupCells and IupMatrix render off-cycle
+	   (outside drawRect:) and then merely flush; on Cocoa there is no drawing context at that
+	   moment, so without somewhere durable to draw, that rendering is discarded. All drawing
+	   goes here and drawRect: blits it to the screen. */
+	CGContextRef _backingContext;
+	size_t _backingWidth;
+	size_t _backingHeight;
+	CGFloat _backingScale;
+	bool _insideDrawRect;
+	int _focusLockDepth;
 }
 @property(nonatomic, assign) Ihandle* ih;
 @property(nonatomic, assign) struct _IdrawCanvas* dc;
@@ -38,6 +48,9 @@ struct _IdrawCanvas;
 - (void) updateFocus;
 - (NSGraphicsContext*) graphicsContext;
 - (CGContextRef) CGContext;
+- (void) iupEnsureBackingStore;
+- (void) iupInvalidateBackingStore;
+- (bool) iupInsideDrawRect;
 
 @property(nonatomic, copy) NSColor* backgroundColor;
 
