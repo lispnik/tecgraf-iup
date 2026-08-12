@@ -97,6 +97,91 @@ static void* cocoaFrameGetInnerNativeContainerHandleMethod(Ihandle* ih, Ihandle*
 //	return (void*)gtk_bin_get_child((GtkBin*)ih->handle);
 }
 
+static NSBox* cocoaFrameGetBox(Ihandle* ih)
+{
+	NSView* root_view = (NSView*)ih->handle;
+	if(![root_view isKindOfClass:[NSBox class]])
+	{
+		return nil;
+	}
+	return (NSBox*)root_view;
+}
+
+static int cocoaFrameSetFgColorAttrib(Ihandle* ih, const char* value)
+{
+	NSBox* the_frame = cocoaFrameGetBox(ih);
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
+
+	if(nil == the_frame)
+	{
+		return 1;
+	}
+	if(value && iupStrToRGB(value, &r, &g, &b))
+	{
+		/* NSBox has no title-colour API; the title is drawn by its titleCell, an NSTextFieldCell. */
+		NSCell* title_cell = [the_frame titleCell];
+		if([title_cell respondsToSelector:@selector(setTextColor:)])
+		{
+			[(NSTextFieldCell*)title_cell setTextColor:
+				[NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0]];
+			iupdrvPostRedraw(ih);
+		}
+	}
+	return 1;
+}
+
+static int cocoaFrameSetBgColorAttrib(Ihandle* ih, const char* value)
+{
+	NSBox* the_frame = cocoaFrameGetBox(ih);
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
+
+	/* Same rule as gtk and win: a frame only owns a background colour when it was created
+	   without a title and with an explicit BGCOLOR. Otherwise it shows the native parent's. */
+	if(!iupAttribGet(ih, "_IUPFRAME_HAS_BGCOLOR"))
+	{
+		return 0;
+	}
+	if((nil == the_frame) || !iupStrToRGB(value, &r, &g, &b))
+	{
+		return 0;
+	}
+
+	/* fillColor is only drawn for a custom box, so switch away from the themed bezel. */
+	[the_frame setBoxType:NSBoxCustom];
+	[the_frame setFillColor:[NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0]];
+	iupdrvPostRedraw(ih);
+	return 1;   /* save on the hash table */
+}
+
+static int cocoaFrameSetSunkenAttrib(Ihandle* ih, const char* value)
+{
+	NSBox* the_frame = cocoaFrameGetBox(ih);
+
+	/* gtk only honours SUNKEN on a titleless frame; do the same. */
+	if(iupAttribGet(ih, "_IUPFRAME_HAS_TITLE") || (nil == the_frame))
+	{
+		return 0;
+	}
+
+	if(iupStrBoolean(value))
+	{
+		[the_frame setBoxType:NSBoxCustom];
+		[the_frame setBorderType:NSBezelBorder];   /* the sunken look */
+	}
+	else
+	{
+		[the_frame setBoxType:NSBoxCustom];
+		[the_frame setBorderType:NSGrooveBorder];  /* gtk's ETCHED_IN equivalent */
+	}
+	iupdrvPostRedraw(ih);
+	return 1;
+}
+
+
 static int cocoaFrameSetTitleAttrib(Ihandle* ih, const char* title)
 {
 	NSBox* the_frame = (NSBox*)ih->handle;
@@ -125,6 +210,21 @@ static int cocoaFrameMapMethod(Ihandle* ih)
 
 //	NSBox* the_frame = [[NSBox alloc] initWithFrame:NSZeroRect];
 	NSBox* the_frame = [[NSBox alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
+
+	/* Establish the same two flags gtk and win use to decide who owns the background and whether
+	   SUNKEN applies: a titled frame inherits the parent's colour, a titleless one created with
+	   an explicit BGCOLOR owns its own. */
+	{
+		char* map_title = iupAttribGet(ih, "TITLE");
+		if(map_title)
+		{
+			iupAttribSet(ih, "_IUPFRAME_HAS_TITLE", "1");
+		}
+		else if(iupAttribGet(ih, "BGCOLOR") || iupAttribGet(ih, "BACKCOLOR"))
+		{
+			iupAttribSet(ih, "_IUPFRAME_HAS_BGCOLOR", "1");
+		}
+	}
 
 	{
 		char* title;
@@ -229,20 +329,15 @@ void iupdrvFrameInitClass(Iclass* ic)
 //	ic->ComputeNaturalSize = cocoaFrameComputeNaturalSizeMethod;
 //	ic->LayoutUpdate = cocoaFrameLayoutUpdate;
 
-#if 0
-	
-	/* Driver Dependent Attribute functions */
-	
-	/* Overwrite Common */
-	iupClassRegisterAttribute(ic, "STANDARDFONT", NULL, gtkFrameSetStandardFontAttrib, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED);
-	
 	/* Visual */
-	iupClassRegisterAttribute(ic, "BGCOLOR", iupFrameGetBgColorAttrib, gtkFrameSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_DEFAULT);
-	iupClassRegisterAttribute(ic, "SUNKEN", NULL, gtkFrameSetSunkenAttrib, NULL, NULL, IUPAF_NO_INHERIT);
-	
+	iupClassRegisterAttribute(ic, "BGCOLOR", iupFrameGetBgColorAttrib, cocoaFrameSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_DEFAULT);
+	/* gtk also exposes BACKCOLOR as an alias that never inherits */
+	iupClassRegisterAttribute(ic, "BACKCOLOR", iupFrameGetBgColorAttrib, cocoaFrameSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "SUNKEN", NULL, cocoaFrameSetSunkenAttrib, NULL, NULL, IUPAF_NO_INHERIT);
+
 	/* Special */
-	iupClassRegisterAttribute(ic, "FGCOLOR", NULL, gtkFrameSetFgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGFGCOLOR", IUPAF_DEFAULT);
-#endif
+	iupClassRegisterAttribute(ic, "FGCOLOR", NULL, cocoaFrameSetFgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGFGCOLOR", IUPAF_DEFAULT);
+
 	iupClassRegisterAttribute(ic, "TITLE", NULL, cocoaFrameSetTitleAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
 	
 }
