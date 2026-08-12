@@ -731,6 +731,307 @@ static int cocoaListSetTopItemAttrib(Ihandle* ih, const char* value)
 }
 
 
+/* ---- Phase 2: the editbox text attributes -------------------------------------------------
+   A list's editable text lives in an NSComboBox (EDITBOX+DROPDOWN) or in the NSTextField of the
+   EDITBOX composite. Caret and selection are not properties of the field: while a field is being
+   edited they live in the window's shared field editor, an NSTextView. So these operate on the
+   field editor when the field is actually being edited, which is when an application sets them. */
+
+static NSTextField* cocoaListGetEditableField(Ihandle* ih)
+{
+	IupCocoaListSubType sub_type = cocoaListGetSubType(ih);
+	if(IUPCOCOALISTSUBTYPE_EDITBOXDROPDOWN == sub_type)
+	{
+		id base = cocoaListGetBaseWidget(ih);
+		return [base isKindOfClass:[NSTextField class]] ? (NSTextField*)base : nil;
+	}
+	if(IUPCOCOALISTSUBTYPE_EDITBOX == sub_type)
+	{
+		return cocoaListGetEditBoxTextField(ih);
+	}
+	return nil;
+}
+
+/* Returns the field editor only when it is genuinely editing our field; the editor is shared per
+   window, so using it otherwise would read or clobber a different control's text. */
+static NSTextView* cocoaListGetFieldEditor(Ihandle* ih)
+{
+	NSTextField* the_field = cocoaListGetEditableField(ih);
+	NSText* field_editor;
+
+	if(nil == the_field)
+	{
+		return nil;
+	}
+	field_editor = [[the_field window] fieldEditor:NO forObject:the_field];
+	if(![field_editor isKindOfClass:[NSTextView class]])
+	{
+		return nil;
+	}
+	if([(NSTextView*)field_editor delegate] != (id<NSTextViewDelegate>)the_field)
+	{
+		return nil;   /* not currently editing our field */
+	}
+	return (NSTextView*)field_editor;
+}
+
+static NSString* cocoaListGetEditText(Ihandle* ih)
+{
+	NSTextView* field_editor = cocoaListGetFieldEditor(ih);
+	if(nil != field_editor)
+	{
+		return [field_editor string];
+	}
+	{
+		NSTextField* the_field = cocoaListGetEditableField(ih);
+		return the_field ? [the_field stringValue] : nil;
+	}
+}
+
+static void cocoaListSetEditSelectionRange(Ihandle* ih, NSInteger start, NSInteger end)
+{
+	NSTextView* field_editor = cocoaListGetFieldEditor(ih);
+	NSInteger length;
+
+	if(nil == field_editor)
+	{
+		return;
+	}
+	length = (NSInteger)[[field_editor string] length];
+	if(start < 0) { start = 0; }
+	if(end < 0)   { end = length; }        /* -1 means "to the end", as in gtk */
+	if(start > length) { start = length; }
+	if(end > length)   { end = length; }
+	if(end < start)    { end = start; }
+
+	[field_editor setSelectedRange:NSMakeRange(start, end - start)];
+}
+
+static int cocoaListSetSelectionPosAttrib(Ihandle* ih, const char* value)
+{
+	int start = 0;
+	int end = 0;
+
+	if(!ih->data->has_editbox || !value)
+	{
+		return 0;
+	}
+	if(iupStrEqualNoCase(value, "NONE"))
+	{
+		cocoaListSetEditSelectionRange(ih, 0, 0);
+		return 0;
+	}
+	if(iupStrEqualNoCase(value, "ALL"))
+	{
+		cocoaListSetEditSelectionRange(ih, 0, -1);
+		return 0;
+	}
+	if(iupStrToIntInt(value, &start, &end, ':') != 2)
+	{
+		return 0;
+	}
+	if((start < 0) || (end < 0))
+	{
+		return 0;
+	}
+	cocoaListSetEditSelectionRange(ih, start, end);
+	return 0;
+}
+
+static char* cocoaListGetSelectionPosAttrib(Ihandle* ih)
+{
+	NSTextView* field_editor;
+	NSRange selected_range;
+
+	if(!ih->data->has_editbox)
+	{
+		return NULL;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return NULL;
+	}
+	selected_range = [field_editor selectedRange];
+	if(0 == selected_range.length)
+	{
+		return NULL;
+	}
+	return iupStrReturnIntInt((int)selected_range.location,
+		(int)(selected_range.location + selected_range.length), ':');
+}
+
+static char* cocoaListGetSelectedTextAttrib(Ihandle* ih)
+{
+	NSTextView* field_editor;
+	NSRange selected_range;
+
+	if(!ih->data->has_editbox)
+	{
+		return NULL;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return NULL;
+	}
+	selected_range = [field_editor selectedRange];
+	if(0 == selected_range.length)
+	{
+		return NULL;
+	}
+	return iupStrReturnStr([[[field_editor string] substringWithRange:selected_range] UTF8String]);
+}
+
+static int cocoaListSetSelectedTextAttrib(Ihandle* ih, const char* value)
+{
+	NSTextView* field_editor;
+
+	if(!ih->data->has_editbox || !value)
+	{
+		return 0;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return 0;
+	}
+	if(0 == [field_editor selectedRange].length)
+	{
+		return 0;
+	}
+	[field_editor insertText:iupCocoaStringFromCStr(value) replacementRange:[field_editor selectedRange]];
+	return 0;
+}
+
+static int cocoaListSetCaretPosAttrib(Ihandle* ih, const char* value)
+{
+	int pos = 0;
+
+	if(!ih->data->has_editbox || !value)
+	{
+		return 0;
+	}
+	iupStrToInt(value, &pos);
+	if(pos < 0) { pos = 0; }
+	cocoaListSetEditSelectionRange(ih, pos, pos);
+	return 0;
+}
+
+static char* cocoaListGetCaretPosAttrib(Ihandle* ih)
+{
+	NSTextView* field_editor;
+
+	if(!ih->data->has_editbox)
+	{
+		return NULL;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return NULL;
+	}
+	return iupStrReturnInt((int)[field_editor selectedRange].location);
+}
+
+/* CARET is the same position one-based; a list editbox is single line, so there is no row part. */
+static int cocoaListSetCaretAttrib(Ihandle* ih, const char* value)
+{
+	int pos = 1;
+
+	if(!ih->data->has_editbox || !value)
+	{
+		return 0;
+	}
+	iupStrToInt(value, &pos);
+	if(pos < 1) { pos = 1; }
+	cocoaListSetEditSelectionRange(ih, pos - 1, pos - 1);
+	return 0;
+}
+
+static char* cocoaListGetCaretAttrib(Ihandle* ih)
+{
+	NSTextView* field_editor;
+
+	if(!ih->data->has_editbox)
+	{
+		return NULL;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return NULL;
+	}
+	return iupStrReturnInt((int)[field_editor selectedRange].location + 1);
+}
+
+static int cocoaListSetReadOnlyAttrib(Ihandle* ih, const char* value)
+{
+	NSTextField* the_field = cocoaListGetEditableField(ih);
+	if((nil == the_field) || !ih->data->has_editbox)
+	{
+		return 0;
+	}
+	[the_field setEditable:iupStrBoolean(value) ? NO : YES];
+	return 1;
+}
+
+static char* cocoaListGetReadOnlyAttrib(Ihandle* ih)
+{
+	NSTextField* the_field = cocoaListGetEditableField(ih);
+	if((nil == the_field) || !ih->data->has_editbox)
+	{
+		return NULL;
+	}
+	return iupStrReturnBoolean(![the_field isEditable]);
+}
+
+static int cocoaListSetClipboardAttrib(Ihandle* ih, const char* value)
+{
+	NSTextView* field_editor;
+
+	if(!ih->data->has_editbox)
+	{
+		return 0;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return 0;
+	}
+
+	if(iupStrEqualNoCase(value, "COPY"))
+	{
+		[field_editor copy:nil];
+	}
+	else if(iupStrEqualNoCase(value, "CUT"))
+	{
+		[field_editor cut:nil];
+	}
+	else if(iupStrEqualNoCase(value, "PASTE"))
+	{
+		[field_editor paste:nil];
+	}
+	else if(iupStrEqualNoCase(value, "CLEAR"))
+	{
+		[field_editor insertText:@"" replacementRange:[field_editor selectedRange]];
+	}
+	return 0;
+}
+
+/* SCROLLTO/SCROLLTOPOS are editbox-only and move the caret, exactly as in gtk -- they do not
+   scroll the list. TOPITEM is what scrolls the list. */
+static int cocoaListSetScrollToAttrib(Ihandle* ih, const char* value)
+{
+	return cocoaListSetCaretAttrib(ih, value);
+}
+
+static int cocoaListSetScrollToPosAttrib(Ihandle* ih, const char* value)
+{
+	return cocoaListSetCaretPosAttrib(ih, value);
+}
+
+
 void iupdrvListAddItemSpace(Ihandle* ih, int* h)
 {
 //	*h += 2;
@@ -1476,36 +1777,38 @@ static int cocoaListSetShowDropdownAttrib(Ihandle* ih, const char* value)
 
 static int cocoaListSetInsertAttrib(Ihandle* ih, const char* value)
 {
-//	gint pos;
-//	GtkEntry* entry;
-	if (!ih->data->has_editbox)
-		return 0;
-	if (!value)
-		return 0;
+	NSTextView* field_editor;
 
-#if 0
-	iupAttribSet(ih, "_IUPGTK_DISABLE_TEXT_CB", "1");  /* disable callbacks */
-	entry = (GtkEntry*)iupAttribGet(ih, "_IUPGTK_ENTRY");
-	pos = gtk_editable_get_position(GTK_EDITABLE(entry));
-	gtk_editable_insert_text(GTK_EDITABLE(entry), iupgtkStrConvertToSystem(value), -1, &pos);
-	iupAttribSet(ih, "_IUPGTK_DISABLE_TEXT_CB", NULL);
-#endif
-	
+	if(!ih->data->has_editbox || !value)
+	{
+		return 0;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return 0;
+	}
+	/* at the caret, replacing any selection -- same as gtk_editable_insert_text at the position */
+	[field_editor insertText:iupCocoaStringFromCStr(value)
+		replacementRange:[field_editor selectedRange]];
 	return 0;
 }
 
 static int cocoaListSetAppendAttrib(Ihandle* ih, const char* value)
 {
-#if 0
-	if (ih->data->has_editbox)
+	NSTextView* field_editor;
+
+	if(!ih->data->has_editbox || !value)
 	{
-		GtkEntry* entry = (GtkEntry*)iupAttribGet(ih, "_IUPGTK_ENTRY");
-		gint pos = (gint)strlen(gtk_entry_get_text(entry))+1;
-		iupAttribSet(ih, "_IUPGTK_DISABLE_TEXT_CB", "1"); /* disable callbacks */
-		gtk_editable_insert_text(GTK_EDITABLE(entry), iupgtkStrConvertToSystem(value), -1, &pos);
-		iupAttribSet(ih, "_IUPGTK_DISABLE_TEXT_CB", NULL);
+		return 0;
 	}
-#endif
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return 0;
+	}
+	[field_editor insertText:iupCocoaStringFromCStr(value)
+		replacementRange:NSMakeRange([[field_editor string] length], 0)];
 	return 0;
 }
 
@@ -1513,58 +1816,57 @@ static int cocoaListSetAppendAttrib(Ihandle* ih, const char* value)
 
 static int cocoaListSetSelectionAttrib(Ihandle* ih, const char* value)
 {
-#if 0
-  int start=1, end=1;
-  GtkEntry* entry;
-  if (!ih->data->has_editbox)
-    return 0;
-  if (!value)
-    return 0;
+	int start = 1;
+	int end = 1;
 
-  entry = (GtkEntry*)iupAttribGet(ih, "_IUPGTK_ENTRY");
-  if (!value || iupStrEqualNoCase(value, "NONE"))
-  {
-    gtk_editable_select_region(GTK_EDITABLE(entry), 0, 0);
-    return 0;
-  }
-
-  if (iupStrEqualNoCase(value, "ALL"))
-  {
-    gtk_editable_select_region(GTK_EDITABLE(entry), 0, -1);
-    return 0;
-  }
-
-  if (iupStrToIntInt(value, &start, &end, ':')!=2) 
-    return 0;
-
-  if(start<1 || end<1) 
-    return 0;
-
-  start--; /* IUP starts at 1 */
-  end--;
-
-  gtk_editable_select_region(GTK_EDITABLE(entry), start, end);
-#endif
-  return 0;
+	if(!ih->data->has_editbox || !value)
+	{
+		return 0;
+	}
+	if(iupStrEqualNoCase(value, "NONE"))
+	{
+		cocoaListSetEditSelectionRange(ih, 0, 0);
+		return 0;
+	}
+	if(iupStrEqualNoCase(value, "ALL"))
+	{
+		cocoaListSetEditSelectionRange(ih, 0, -1);
+		return 0;
+	}
+	if(iupStrToIntInt(value, &start, &end, ':') != 2)
+	{
+		return 0;
+	}
+	if((start < 1) || (end < 1))
+	{
+		return 0;
+	}
+	cocoaListSetEditSelectionRange(ih, start - 1, end - 1);   /* IUP starts at 1 */
+	return 0;
 }
 
 static char* cocoaListGetSelectionAttrib(Ihandle* ih)
 {
-#if 0
-int start, end;
-  GtkEntry* entry;
-  if (!ih->data->has_editbox)
-    return NULL;
+	NSTextView* field_editor;
+	NSRange selected_range;
 
-  entry = (GtkEntry*)iupAttribGet(ih, "_IUPGTK_ENTRY");
-  if (gtk_editable_get_selection_bounds(GTK_EDITABLE(entry), &start, &end))
-  {
-    start++; /* IUP starts at 1 */
-    end++;
-    return iupStrReturnIntInt((int)start, (int)end, ':');
-  }
-#endif
-  return NULL;
+	if(!ih->data->has_editbox)
+	{
+		return NULL;
+	}
+	field_editor = cocoaListGetFieldEditor(ih);
+	if(nil == field_editor)
+	{
+		return NULL;
+	}
+	selected_range = [field_editor selectedRange];
+	if(0 == selected_range.length)
+	{
+		return NULL;
+	}
+	/* IUP starts at 1 */
+	return iupStrReturnIntInt((int)selected_range.location + 1,
+		(int)(selected_range.location + selected_range.length) + 1, ':');
 }
 
 static int cocoaListSetContextMenuAttrib(Ihandle* ih, const char* value)
@@ -2151,24 +2453,32 @@ void iupdrvListInitClass(Iclass* ic)
 	iupClassRegisterAttribute(ic, "TOPITEM", NULL, cocoaListSetTopItemAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 
   iupClassRegisterAttribute(ic, "PADDING", iupListGetPaddingAttrib, cocoaListSetPaddingAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
-  iupClassRegisterAttribute(ic, "SELECTEDTEXT", cocoaListGetSelectedTextAttrib, cocoaListSetSelectedTextAttrib, NULL, NULL, IUPAF_NO_INHERIT);
+  #endif
+	iupClassRegisterAttribute(ic, "SELECTEDTEXT", cocoaListGetSelectedTextAttrib, cocoaListSetSelectedTextAttrib, NULL, NULL, IUPAF_NO_INHERIT);
+#if 0
 #endif
 	
   iupClassRegisterAttribute(ic, "SELECTION", cocoaListGetSelectionAttrib, cocoaListSetSelectionAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 #if 0
+  #endif
   iupClassRegisterAttribute(ic, "SELECTIONPOS", cocoaListGetSelectionPosAttrib, cocoaListSetSelectionPosAttrib, NULL, NULL, IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "CARET", cocoaListGetCaretAttrib, cocoaListSetCaretAttrib, NULL, NULL, IUPAF_NO_SAVE|IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "CARETPOS", cocoaListGetCaretPosAttrib, cocoaListSetCaretPosAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NO_SAVE|IUPAF_NO_INHERIT);
+#if 0
 #endif
 	
   iupClassRegisterAttribute(ic, "INSERT", NULL, cocoaListSetInsertAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "APPEND", NULL, cocoaListSetAppendAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
 #if 0
+  #endif
   iupClassRegisterAttribute(ic, "READONLY", cocoaListGetReadOnlyAttrib, cocoaListSetReadOnlyAttrib, NULL, NULL, IUPAF_DEFAULT);
+#if 0
   iupClassRegisterAttribute(ic, "NC", iupListGetNCAttrib, cocoaListSetNCAttrib, NULL, NULL, IUPAF_NOT_MAPPED);
+  #endif
   iupClassRegisterAttribute(ic, "CLIPBOARD", NULL, cocoaListSetClipboardAttrib, NULL, NULL, IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "SCROLLTO", NULL, cocoaListSetScrollToAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "SCROLLTOPOS", NULL, cocoaListSetScrollToPosAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
+#if 0
 
   iupClassRegisterAttributeId(ic, "IMAGE", NULL, cocoaListSetImageAttrib, IUPAF_IHANDLENAME|IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "CUEBANNER", NULL, winListSetCueBannerAttrib, NULL, NULL, IUPAF_NO_INHERIT);
