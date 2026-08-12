@@ -775,58 +775,300 @@ static NSString* cocoaMenuTitleString(const char* title)
 	return ns_string;
 }
 
-static int cocoaItemSetTitleAttrib(Ihandle* ih, const char* value)
-{
-//	char *str;
-	
-	/* check if the submenu handle was created in winSubmenuAddToParent */
-/*
-	if (ih->handle == (InativeHandle*)-1)
-		return 1;
-*/
-	NSMenuItem* menu_item = (NSMenuItem*)ih->handle;
+/* ---- Menu accelerators ---------------------------------------------------------------------
+   An IUP menu title carries its accelerator after a tab: "&Save\tCtrl+S". Windows lets Win32
+   right-align that text and gtk just puts it in the label; IUP documents it as decorative and
+   expects the application to bind the real shortcut with a K_* callback on the dialog.
 
-	NSString* ns_string = nil;
-	if(!value)
+   Passing it to -setTitle: on macOS shows a literal tab followed by "Ctrl+S" in the middle of the
+   menu. AppKit produces the right-aligned, dimmed shortcut from -setKeyEquivalent: and
+   -setKeyEquivalentModifierMask:, so the title is split and the tail translated. */
+
+static void cocoaMenuRightTrim(char* str)
+{
+	size_t len;
+	if(!str)
 	{
-		ns_string = @"";
+		return;
+	}
+	len = strlen(str);
+	while((len > 0) && ((str[len-1] == ' ') || (str[len-1] == '\t')))
+	{
+		str[--len] = 0;
+	}
+}
+
+/* Named keys that have a macOS key-equivalent character. Anything absent from here has none and
+   makes the whole accelerator unparseable, which is what we want -- an accelerator we cannot
+   express should render nothing rather than something misleading. */
+static NSString* cocoaMenuNamedKeyEquivalent(const char* key_name)
+{
+	static const struct { const char* name; unichar code; } k_named_keys[] = {
+		/* Del is the FORWARD delete, matching iupmac_key.m where kVK_ForwardDelete is K_DEL and
+		   kVK_Delete is K_BS -- otherwise a menu item and a K_DEL callback in the same
+		   application would answer to different physical keys. */
+		{ "Del",       NSDeleteFunctionKey },
+		{ "Delete",    NSDeleteFunctionKey },
+		{ "BS",        NSBackspaceCharacter },
+		{ "Backspace", NSBackspaceCharacter },
+		/* Return, not the keypad Enter (NSEnterCharacter, 0x03) */
+		{ "Enter",     NSCarriageReturnCharacter },
+		{ "Return",    NSCarriageReturnCharacter },
+		{ "CR",        NSCarriageReturnCharacter },
+		{ "Esc",       0x001B },
+		{ "Escape",    0x001B },
+		{ "Tab",       NSTabCharacter },
+		{ "Space",     0x0020 },
+		{ "SP",        0x0020 },
+		{ "Up",        NSUpArrowFunctionKey },
+		{ "Down",      NSDownArrowFunctionKey },
+		{ "Left",      NSLeftArrowFunctionKey },
+		{ "Right",     NSRightArrowFunctionKey },
+		{ "Home",      NSHomeFunctionKey },
+		{ "End",       NSEndFunctionKey },
+		{ "PgUp",      NSPageUpFunctionKey },
+		{ "PgDn",      NSPageDownFunctionKey },
+	};
+	size_t i;
+
+	/* F1 .. F12 are contiguous from NSF1FunctionKey */
+	if(((key_name[0] == 'F') || (key_name[0] == 'f')) && isdigit((unsigned char)key_name[1]))
+	{
+		int function_number = atoi(key_name + 1);
+		const char* digits = key_name + 1;
+		while(isdigit((unsigned char)*digits)) { digits++; }
+		if((*digits == 0) && (function_number >= 1) && (function_number <= 12))
+		{
+			return [NSString stringWithFormat:@"%C", (unichar)(NSF1FunctionKey + function_number - 1)];
+		}
+	}
+
+	for(i = 0; i < sizeof(k_named_keys)/sizeof(k_named_keys[0]); i++)
+	{
+		if(0 == strcasecmp(key_name, k_named_keys[i].name))
+		{
+			return [NSString stringWithFormat:@"%C", k_named_keys[i].code];
+		}
+	}
+	return nil;
+}
+
+/* Returns NO, writing neither output, when the text cannot be expressed as a macOS shortcut. */
+static BOOL cocoaMenuParseAccelerator(const char* accel_text, NSString** out_key_equivalent,
+	NSEventModifierFlags* out_modifier_mask)
+{
+	static const struct { const char* name; NSEventModifierFlags flag; } k_modifiers[] = {
+		{ "Control", NSEventModifierFlagControl }, { "Ctrl", NSEventModifierFlagControl },
+		{ "Shift",   NSEventModifierFlagShift },
+		{ "Option",  NSEventModifierFlagOption },  { "Alt",  NSEventModifierFlagOption },
+		{ "Command", NSEventModifierFlagCommand }, { "Cmd",  NSEventModifierFlagCommand },
+	};
+	NSEventModifierFlags modifier_mask = 0;
+	NSString* key_equivalent = nil;
+	const char* scan;
+	char key_token[64];
+	size_t token_length;
+
+	if(!accel_text)
+	{
+		return NO;
+	}
+	scan = accel_text;
+	while(' ' == *scan) { scan++; }
+
+	/* Consume modifier prefixes left to right; whatever is left is the key. Splitting on '+'
+	   instead would break "Ctrl++" and "Ctrl+-", where the key IS the separator character. */
+	for(;;)
+	{
+		size_t i;
+		BOOL matched_one = NO;
+
+		for(i = 0; i < sizeof(k_modifiers)/sizeof(k_modifiers[0]); i++)
+		{
+			size_t name_length = strlen(k_modifiers[i].name);
+			const char* after;
+
+			if(0 != strncasecmp(scan, k_modifiers[i].name, name_length))
+			{
+				continue;
+			}
+			after = scan + name_length;
+
+			/* "Ctrl_Num +" is the keypad spelling. The qualifier is dropped rather than turned
+			   into NSEventModifierFlagNumericPad: most Mac keyboards have no keypad, so the
+			   shortcut would be unpressable, and the application that uses this spelling binds
+			   plain Ctrl-plus (K_c+) for the real shortcut anyway. */
+			if(0 == strncasecmp(after, "_Num", 4))
+			{
+				after += 4;
+				while(' ' == *after) { after++; }
+			}
+			else if(('+' == *after) || ('-' == *after))
+			{
+				after++;
+				while(' ' == *after) { after++; }
+			}
+			else
+			{
+				continue;   /* name matched but no separator: this is the key, not a modifier */
+			}
+
+			modifier_mask |= k_modifiers[i].flag;
+			scan = after;
+			matched_one = YES;
+			break;
+		}
+		if(!matched_one)
+		{
+			break;
+		}
+	}
+
+	token_length = strlen(scan);
+	if((0 == token_length) || (token_length >= sizeof(key_token)))
+	{
+		return NO;
+	}
+	strcpy(key_token, scan);
+	cocoaMenuRightTrim(key_token);
+	token_length = strlen(key_token);
+	if(0 == token_length)
+	{
+		return NO;
+	}
+
+	/* Quoted form "Ctrl+'+'" -- must be tried before the single-character rule. */
+	if((3 == token_length) && ('\'' == key_token[0]) && ('\'' == key_token[2]))
+	{
+		key_equivalent = [NSString stringWithFormat:@"%c", key_token[1]];
+	}
+	else if(1 == token_length)
+	{
+		/* Lower case for letters: AppKit takes an upper-case equivalent to imply Shift, and we
+		   express Shift with the modifier mask instead so that one rule covers letters,
+		   punctuation and function keys alike. */
+		key_equivalent = [NSString stringWithFormat:@"%c", tolower((unsigned char)key_token[0])];
 	}
 	else
 	{
-		ns_string = cocoaMenuTitleString(value);
-
+		key_equivalent = cocoaMenuNamedKeyEquivalent(key_token);
 	}
-	
-	// Mnemonic is not actually supported on Mac. Maybe it does something on GNUStep?
-	// However it does seem to strip the & from being displayed in the menu, so it is useful.
-	[menu_item setTitle:ns_string];
-	//[menu_item setTitle:ns_string];
 
-	
-	// Try to extract the Mnemonic
-	
-	
-	NSRange search_result_range = [ns_string rangeOfString:@"&"];
-	if(NSNotFound != search_result_range.location)
+	if(nil == key_equivalent)
 	{
-		NSRange character_range = NSMakeRange(search_result_range.location+1, 1);
-		
-		// Make sure the & isn't at the end of the string
-		if(character_range.location + character_range.length <= [ns_string length])
-		{
-			NSString* mnemonic_char = [ns_string substringWithRange:character_range];
-			// Drat. If the user is doing something like "&Print", uppercase P makes you press CMD-SHIFT-p. Most likely they just wanted CMD-p
-			// Make lowercase to avoid this, but we need a better system to allow specifying command characters in case they did want SHIFT
-			mnemonic_char = [mnemonic_char lowercaseString];
-			[menu_item setKeyEquivalent:mnemonic_char];
-		}
-
-
+		return NO;
 	}
-	
-	
-	
-	
+
+	/* An equivalent with no modifiers is dispatched on the bare keystroke, application-wide and
+	   ahead of the responder chain -- a bare Del, Enter, Esc or arrow in the menu bar would stop
+	   text fields from working. Function keys carry no such duty, so they are the exception. */
+	if(0 == modifier_mask)
+	{
+		unichar first_char = [key_equivalent characterAtIndex:0];
+		if((first_char < NSF1FunctionKey) || (first_char > NSF1FunctionKey + 11))
+		{
+			return NO;
+		}
+	}
+
+	*out_key_equivalent = key_equivalent;
+	*out_modifier_mask = modifier_mask;
+	return YES;
+}
+
+/* The label is everything before the tab. Shared by the map method's reuse-by-title search so
+   both sides of that comparison agree. Caller must free the result. */
+static char* cocoaMenuSplitTitle(const char* raw_title, const char** out_accel_text)
+{
+	const char* scan = raw_title;
+	char* label;
+
+	*out_accel_text = NULL;
+	if(!raw_title)
+	{
+		return NULL;
+	}
+	label = iupStrDupUntil(&scan, '\t');
+	if(!label)
+	{
+		return iupStrDup(raw_title);   /* no tab: the whole thing is the label */
+	}
+	*out_accel_text = scan;
+	return label;
+}
+
+static NSString* cocoaMenuItemLabelString(const char* raw_title)
+{
+	const char* accel_text = NULL;
+	char* label = cocoaMenuSplitTitle(raw_title, &accel_text);
+	NSString* ns_string;
+
+	if(!label)
+	{
+		return @"";
+	}
+	cocoaMenuRightTrim(label);   /* "Item with Image \tCtrl+M" leaves a trailing space */
+	ns_string = cocoaMenuTitleString(label);
+	free(label);
+	return ns_string;
+}
+
+static void cocoaMenuItemApplyTitle(Ihandle* ih, NSMenuItem* menu_item, const char* raw_title)
+{
+	const char* accel_text = NULL;
+	char* label;
+	NSString* key_equivalent = nil;
+	NSEventModifierFlags modifier_mask = 0;
+
+	if(nil == menu_item)
+	{
+		return;
+	}
+
+	label = cocoaMenuSplitTitle(raw_title, &accel_text);
+	if(label)
+	{
+		cocoaMenuRightTrim(label);
+		[menu_item setTitle:cocoaMenuTitleString(label)];
+		free(label);
+	}
+	else
+	{
+		[menu_item setTitle:@""];
+	}
+
+	if(accel_text && cocoaMenuParseAccelerator(accel_text, &key_equivalent, &modifier_mask)
+		&& IupGetCallback(ih, "ACTION"))
+	{
+		/* Guarded on ACTION deliberately. NSMenu key equivalents are dispatched in
+		   -performKeyEquivalent: BEFORE the responder chain, so an item claiming a shortcut
+		   consumes that keystroke and the dialog's K_ANY path never sees it. For an item with no
+		   ACTION the command usually lives in the dialog's own K_* callback, and installing an
+		   equivalent would swallow the key and break it outright. */
+		[menu_item setKeyEquivalent:key_equivalent];
+		[menu_item setKeyEquivalentModifierMask:modifier_mask];
+		iupAttribSet(ih, "_IUPCOCOA_MENUACCEL", "1");
+	}
+	else if(iupAttribGet(ih, "_IUPCOCOA_MENUACCEL"))
+	{
+		/* Clear only an equivalent we installed ourselves. An IupItem can adopt a pre-existing
+		   NSMenuItem by title (see the search in cocoaItemMapMethod), and clearing
+		   unconditionally would strip the shortcut off a standard item such as Edit > Copy. */
+		[menu_item setKeyEquivalent:@""];
+		[menu_item setKeyEquivalentModifierMask:0];
+		iupAttribSet(ih, "_IUPCOCOA_MENUACCEL", NULL);
+	}
+}
+
+
+static int cocoaItemSetTitleAttrib(Ihandle* ih, const char* value)
+{
+	/* The old body also scanned the title for "&" and installed the following character as a key
+	   equivalent. That looked dead -- cocoaMenuTitleString strips mnemonics first -- but
+	   iupStrProcessMnemonic turns "&&" into a literal "&", so for a title such as
+	   "Item && Acc\tCtrl+A" it found that ampersand, took the next character (a space) and gave
+	   the item a spurious Command-Space shortcut. */
+	cocoaMenuItemApplyTitle(ih, (NSMenuItem*)ih->handle, value);
 	return 1;
 }
 
@@ -988,8 +1230,10 @@ static int cocoaItemMapMethod(Ihandle* ih)
 	}
 	else
 	{
-		ns_string = cocoaMenuTitleString(c_title);
-		
+		/* label only: item titles no longer carry the accelerator text, so the search has to
+		   compare like with like -- and this now also matches nib-provided items, whose titles
+		   are plain labels. */
+		ns_string = cocoaMenuItemLabelString(c_title);
 	}
 	// search through parent to see if this item already exists
 	for(NSMenuItem* current_menu_item in [parent_menu itemArray])
