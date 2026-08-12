@@ -117,6 +117,71 @@ void iupdrvLabelAddExtraPadding(Ihandle* ih, int *x, int *y)
 }
 
 
+/* One place decides the label's text colour, because ACTIVE and FGCOLOR both want to own it and
+   the font code can put the field into attributed-string mode where -setTextColor: is ignored.
+   Inactive wins over FGCOLOR, matching Windows (COLOR_GRAYTEXT) and GTK (insensitive styling).
+   `fg_override` exists because IUP has not stored the new value yet when a setter runs. */
+static void cocoaLabelUpdateTextColor(Ihandle* ih, int is_active, const char* fg_override)
+{
+	NSTextField* the_label = cocoaLabelGetTextField(ih);
+	NSColor* the_color;
+
+	if(nil == the_label)
+	{
+		return;   /* separators and image labels have no text */
+	}
+
+	if(!is_active)
+	{
+		the_color = [NSColor disabledControlTextColor];
+	}
+	else
+	{
+		const char* fg_value = fg_override ? fg_override : iupAttribGet(ih, "FGCOLOR");
+		unsigned char r;
+		unsigned char g;
+		unsigned char b;
+
+		if(fg_value && iupStrToRGB(fg_value, &r, &g, &b))
+		{
+			the_color = [NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0];
+		}
+		else
+		{
+			/* Deliberately NOT the DLGFGCOLOR global: iupcocoa_open.m captures that once at
+			   startup from windowFrameTextColor, so using it would freeze labels to whichever
+			   appearance was active then and break Dark Mode. controlTextColor is dynamic. */
+			the_color = [NSColor controlTextColor];
+		}
+	}
+
+	[the_label setTextColor:the_color];
+
+	/* A field showing an NSAttributedString (underline/strikeout fonts) ignores textColor, so the
+	   colour has to be written into the string itself. Guarded so a plain field is never
+	   silently promoted to attributed. */
+	if([iupCocoaGetFont(ih) usesAttributes]
+		&& [the_label respondsToSelector:@selector(setAttributedStringValue:)])
+	{
+		NSMutableAttributedString* mutable_string = [[the_label attributedStringValue] mutableCopy];
+		if([mutable_string length] > 0)
+		{
+			[mutable_string addAttribute:NSForegroundColorAttributeName
+				value:the_color range:NSMakeRange(0, [mutable_string length])];
+			[the_label setAttributedStringValue:mutable_string];
+		}
+		[mutable_string release];
+	}
+}
+
+
+static int cocoaLabelSetFgColorAttrib(Ihandle* ih, const char* value)
+{
+	cocoaLabelUpdateTextColor(ih, iupdrvIsActive(ih), value);
+	return 1;
+}
+
+
 static int cocoaLabelSetPaddingAttrib(Ihandle* ih, const char* value)
 {
 	// Our Cocoa iupdrvbaseUpdateLayout contains a special case to handle padding. We just need to make sure the padding values get set here.
@@ -183,6 +248,8 @@ static int cocoaLabelSetTitleAttrib(Ihandle* ih, const char* value)
 			NSAttributedString* attr_str = [[NSAttributedString alloc] initWithString:ns_string attributes:[iup_font attributeDictionary]];
 			[the_label setAttributedStringValue:attr_str];
 			[attr_str release];
+			/* the new attributed string carries no colour of its own */
+			cocoaLabelUpdateTextColor(ih, iupdrvIsActive(ih), NULL);
 			// I think I need to call this. I noticed in another program, when I suddenly set a long string, it seems to use the prior layout. This forces a relayout.
 			IupRefresh(ih);
 		}
@@ -202,38 +269,26 @@ static int cocoaLabelSetTitleAttrib(Ihandle* ih, const char* value)
 
 static int cocoaLabelSetActiveAttrib(Ihandle* ih, const char* value)
 {
-	NSView* the_view = cocoaLabelGetRootView(ih);
-	BOOL is_active = (BOOL)iupStrBoolean(value);
+	int is_active = iupStrBoolean(value);
 
-	if([the_view isKindOfClass:[NSTextField class]])
+	/* Pass is_active explicitly rather than asking iupdrvIsActive: the native enabled flag still
+	   holds the old value at this point. */
+	if(IUP_LABEL_IMAGE == ih->data->type)
 	{
-		NSTextField* the_label = (NSTextField*)the_view;
-		[the_label setEnabled:is_active];
-		
-		// For whatever reason, Cocoa doesn't automatically gray out labels when disabled.
-		// But it's a pretty common thing to do, so everybody explicitly sets the color using the Cocoa predefined color constants.
-		if(is_active)
-		{
-			// FIXME: If the user has requested a different text color, we need to use that color instead
-			[the_label setTextColor:[NSColor controlTextColor]];
-		}
-		else
-		{
-			[the_label setTextColor:[NSColor disabledControlTextColor]];
-		}
-	}
-	else if([the_view isKindOfClass:[NSImageView class]])
-	{
-		NSImageView* image_view = (NSImageView*)the_view;
-		[image_view setEnabled:is_active];
+		/* gtk and win both grey the image when inactive; previously only setEnabled: was called,
+		   which leaves an NSImageView looking identical. */
+		cocoaLabelSetNativeImage(ih, iupAttribGet(ih, "IMAGE"), is_active);
 	}
 	else
 	{
-		NSLog(@"Unexpected type in cocoaLabelSetActiveAttrib");
+		/* No-op for separators, which used to fall into an else that logged
+		   "Unexpected type in cocoaLabelSetActiveAttrib" on every call. */
+		cocoaLabelUpdateTextColor(ih, is_active, NULL);
 	}
 
-	return 1;
-
+	/* Chaining gets the setEnabled: call (iupdrvSetActive dispatches on respondsToSelector:, so
+	   NSBox is correctly skipped) plus the parent-is-active check, matching gtk. */
+	return iupBaseSetActiveAttrib(ih, value);
 }
 
 
@@ -833,15 +888,15 @@ void iupdrvLabelInitClass(Iclass* ic)
 
   /* Overwrite Visual */
   iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, cocoaLabelSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
-#if 0
-
   /* Visual */
-  iupClassRegisterAttribute(ic, "BGCOLOR", iupBaseNativeParentGetBgColorAttrib, gtkLabelSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_DEFAULT);
+  /* Getter only, as on Windows: the label is already setDrawsBackground:NO, so it is transparent
+     and takes the native parent's colour -- which is what the documentation specifies. The getter
+     is not cosmetic: iupImageGetImage() reads BGCOLOR to blend the greyed-out version of an
+     image label, so without it an inactive image blends against the wrong colour. */
+  iupClassRegisterAttribute(ic, "BGCOLOR", iupBaseNativeParentGetBgColorAttrib, NULL, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NO_SAVE);
 
   /* Special */
-  iupClassRegisterAttribute(ic, "FGCOLOR", NULL, iupdrvBaseSetFgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGFGCOLOR", IUPAF_DEFAULT);
-	
-#endif
+  iupClassRegisterAttribute(ic, "FGCOLOR", NULL, cocoaLabelSetFgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGFGCOLOR", IUPAF_DEFAULT);
 	
   iupClassRegisterAttribute(ic, "TITLE", cocoaLabelGetTitleAttrib, cocoaLabelSetTitleAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
   /* IupLabel only */
