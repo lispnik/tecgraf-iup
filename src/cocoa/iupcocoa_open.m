@@ -71,14 +71,15 @@ void iupmacUpdateGlobalColors(void)
 	unsigned char b;
 	unsigned char a;
 
-	// I don't know what this should be
-	//	cocoaGetByteRGBAFromNSColor([NSColor controlBackgroundColor], &r, &g, &b, &a);
-	cocoaGetByteRGBAFromNSColor([NSColor windowFrameColor], &r, &g, &b, &a);
-	// 	cocoaGetByteRGBAFromNSColor([NSColor windowBackgroundColor], &r, &g, &b, &a);
+	/* windowFrameColor is the titlebar chrome, not window content: it stays light (170,170,170)
+	   in Dark Mode, while windowFrameTextColor is white. Pairing those gave DLGBGCOLOR light and
+	   DLGFGCOLOR white -- white text on a light background. IupMatrix title cells were drawn
+	   exactly that way and were unreadable. windowBackgroundColor and labelColor are the content
+	   pair and track the appearance together. */
+	cocoaGetByteRGBAFromNSColor([NSColor windowBackgroundColor], &r, &g, &b, &a);
 	iupGlobalSetDefaultColorAttrib("DLGBGCOLOR", r, g, b);
-	
-	cocoaGetByteRGBAFromNSColor([NSColor windowFrameTextColor], &r, &g, &b, &a);
-	
+
+	cocoaGetByteRGBAFromNSColor([NSColor labelColor], &r, &g, &b, &a);
 	iupGlobalSetDefaultColorAttrib("DLGFGCOLOR", r, g, b);
 	
 	

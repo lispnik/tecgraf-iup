@@ -428,11 +428,37 @@ NSGraphicsContext* nsgc = [NSGraphicsContext graphicsContextWithCGContext:cg_con
  [NSGraphicsContext setCurrentContext:nsgc];
 	
 
-    NSPoint start_point = { x, y };
- //   startPoint.x = bounds.origin.x + bounds.size.width / 2 - size.width / 2;
- //   startPoint.y = bounds.origin.y + bounds.size.height / 2 - size.height / 2;
+	NSPoint start_point = { x, y };
 	NSString* ns_string = iupCocoaStringFromCStr(text);
-    [ns_string drawAtPoint:start_point withAttributes: nil];
+	NSMutableDictionary* text_attributes = [NSMutableDictionary dictionary];
+
+	/* -drawAtPoint:withAttributes: takes its colour and font from the attributes dictionary; the
+	   CGContext fill colour set above has no effect on it. Passing nil meant AppKit used its own
+	   defaults -- system font, BLACK text -- so every string drawn through the IupDraw API came
+	   out black whatever colour was asked for. That looks right in Light Mode, and made IupMatrix
+	   and IupCells illegible in Dark Mode: black text on the dark TXTBGCOLOR background. */
+	[text_attributes setObject:[NSColor colorWithCalibratedRed:r/255.0 green:g/255.0
+			blue:b/255.0 alpha:(0 == a) ? 1.0 : a/255.0]
+		forKey:NSForegroundColorAttributeName];
+
+	{
+		/* Use the element's resolved font, which is what iupdrvFontGetMultiLineStringSize
+		   measured with, so drawn text matches the size the layout was computed from. */
+		IupCocoaFont* iup_font = (NULL != dc->ih) ? iupCocoaGetFont(dc->ih) : nil;
+		NSFont* native_font = [iup_font nativeFont];
+		if(nil != native_font)
+		{
+			[text_attributes setObject:native_font forKey:NSFontAttributeName];
+		}
+	}
+
+	/* callers may pass a length shorter than the C string */
+	if((len > 0) && (len < (int)[ns_string length]))
+	{
+		ns_string = [ns_string substringToIndex:(NSUInteger)len];
+	}
+
+	[ns_string drawAtPoint:start_point withAttributes:text_attributes];
 	 [NSGraphicsContext restoreGraphicsState];
 }
 void iupdrvDrawSelectRect(IdrawCanvas* dc, int x1, int y1, int x2, int y2)
