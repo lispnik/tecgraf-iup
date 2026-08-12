@@ -95,6 +95,11 @@ IUP_DRV_API bool iupCocoaCommonBaseHandleMouseMotionCallback(Ihandle* ih, NSEven
 IUP_DRV_API void iupCocoaCommonBaseHandleMouseEnterWindowCallback(Ihandle* ih);
 IUP_DRV_API void iupCocoaCommonBaseHandleMouseLeaveWindowCallback(Ihandle* ih);
 
+/* Gives an element ENTERWINDOW_CB / LEAVEWINDOW_CB by attaching an NSTrackingArea whose owner is
+   a small helper object rather than the view, so no control needs to be subclassed for it.
+   Called for every element from iupCocoaAddToParent. */
+IUP_DRV_API void iupCocoaCommonBaseInstallEnterLeaveTracking(Ihandle* ih, NSView* the_view);
+
 // WHEEL_CB: WARNING: IUP does not support delta-y axis.
 IUP_DRV_API bool iupCocoaCommonBaseScrollWheelCallback(Ihandle* ih, NSEvent* the_event, NSView* represented_view);
 

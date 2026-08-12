@@ -122,6 +122,85 @@ void iupCocoaSetAssociatedViews(Ihandle* ih, NSView* main_view, NSView* root_vie
 
 
 
+/* ---- ENTERWINDOW_CB / LEAVEWINDOW_CB -------------------------------------------------------
+   iupBaseRegisterCommonCallbacks registers these for every control, so implementing them by
+   subclassing each native class would mean touching all of them. An NSTrackingArea's owner does
+   not have to be the view it is attached to, so one small owner object per element gives every
+   control the callbacks without a subclass anywhere.
+
+   NSTrackingInVisibleRect makes AppKit maintain the region itself, which matters because the
+   owner is not the view and would therefore never receive -updateTrackingAreas. */
+
+@interface IupCocoaTrackingOwner : NSObject
+{
+	Ihandle* _ih;   /* unretained: the owner is destroyed with the element */
+}
+- (instancetype) initWithIhandle:(Ihandle*)ih;
+@end
+
+@implementation IupCocoaTrackingOwner
+
+- (instancetype) initWithIhandle:(Ihandle*)ih
+{
+	self = [super init];
+	if(self)
+	{
+		_ih = ih;
+	}
+	return self;
+}
+
+- (void) mouseEntered:(NSEvent*)the_event
+{
+	(void)the_event;
+	if(NULL != _ih)
+	{
+		iupCocoaCommonBaseHandleMouseEnterWindowCallback(_ih);
+	}
+}
+
+- (void) mouseExited:(NSEvent*)the_event
+{
+	(void)the_event;
+	if(NULL != _ih)
+	{
+		iupCocoaCommonBaseHandleMouseLeaveWindowCallback(_ih);
+	}
+}
+
+@end
+
+static const void* IUPCOCOA_TRACKINGOWNER_OBJ_KEY = "IUPCOCOA_TRACKINGOWNER_OBJ_KEY";
+
+void iupCocoaCommonBaseInstallEnterLeaveTracking(Ihandle* ih, NSView* the_view)
+{
+	IupCocoaTrackingOwner* tracking_owner;
+	NSTrackingArea* tracking_area;
+
+	if((NULL == ih) || (nil == the_view))
+	{
+		return;
+	}
+	/* one per element; installing twice would deliver every enter and leave twice */
+	if(nil != objc_getAssociatedObject(the_view, IUPCOCOA_TRACKINGOWNER_OBJ_KEY))
+	{
+		return;
+	}
+
+	tracking_owner = [[IupCocoaTrackingOwner alloc] initWithIhandle:ih];
+	/* RETAIN so the owner lives as long as the view; the tracking area does not retain it */
+	objc_setAssociatedObject(the_view, IUPCOCOA_TRACKINGOWNER_OBJ_KEY, tracking_owner, OBJC_ASSOCIATION_RETAIN);
+	[tracking_owner release];
+
+	tracking_area = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+		options:(NSTrackingMouseEnteredAndExited | NSTrackingActiveInActiveApp | NSTrackingInVisibleRect)
+		owner:tracking_owner
+		userInfo:nil];
+	[the_view addTrackingArea:tracking_area];
+	[tracking_area release];
+}
+
+
 void iupCocoaAddToParent(Ihandle* ih)
 {
 	id parent_native_handle = iupChildTreeGetNativeParentHandle(ih);
@@ -153,6 +232,10 @@ void iupCocoaAddToParent(Ihandle* ih)
 //		[the_view setAutoresizingMask:NSViewMaxXMargin|NSViewMinYMargin];
 
 		
+		/* every control reaches this function, so it is the one place that gives them all
+		   ENTERWINDOW_CB and LEAVEWINDOW_CB */
+		iupCocoaCommonBaseInstallEnterLeaveTracking(ih, the_view);
+
 		if([parent_native_handle isKindOfClass:[NSWindow class]])
 		{
 			NSWindow* parent_window = (NSWindow*)parent_native_handle;

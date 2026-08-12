@@ -64,14 +64,18 @@ static int run(Ihandle* t)
     ok(g_motion >= 1, "MOTION_CB fires on drag", buf);
   }
 
+  /* the tracking area is installed generically by iupCocoaAddToParent for every element, so
+     exactly one is expected -- two would mean the label is also installing its own and every
+     enter/leave would be delivered twice */
   snprintf(buf,sizeof buf,"%lu area(s)", (unsigned long)[[tv trackingAreas] count]);
-  ok([[tv trackingAreas] count] > 0, "tracking area installed for enter/leave", buf);
+  ok([[tv trackingAreas] count] == 1, "exactly one tracking area (no double delivery)", buf);
   {
     /* +mouseEventWithType: raises for enter/exit types; these need the enter/exit constructor. */
     NSEvent* e = [NSEvent enterExitEventWithType:NSEventTypeMouseEntered location:NSZeroPoint
       modifierFlags:0 timestamp:0 windowNumber:[[tv window] windowNumber] context:nil
       eventNumber:0 trackingNumber:0 userData:NULL];
-    [tv mouseEntered:e]; [tv mouseExited:e];
+    { id owner=[[tv trackingAreas] firstObject] ? [[[tv trackingAreas] firstObject] owner] : nil;
+      [owner mouseEntered:e]; [owner mouseExited:e]; }
     snprintf(buf,sizeof buf,"enter=%d leave=%d", g_enter, g_leave);
     ok(g_enter==1 && g_leave==1, "ENTERWINDOW_CB / LEAVEWINDOW_CB fire", buf);
   }

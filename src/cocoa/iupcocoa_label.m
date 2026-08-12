@@ -63,26 +63,6 @@ static void cocoaLabelHandleMouseMotion(NSView* the_view, Ihandle* ih, NSEvent* 
 	(void)iupCocoaCommonBaseHandleMouseMotionCallback(ih, the_event, the_view);
 }
 
-/* NSTrackingInVisibleRect makes AppKit maintain the region itself, so the constant frame changes
-   IUP's layout performs need no bookkeeping here. The returned area is owned by the caller. */
-static NSTrackingArea* cocoaLabelReplaceTrackingArea(NSView* the_view, NSTrackingArea* existing_area)
-{
-	NSTrackingArea* new_area;
-
-	if(nil != existing_area)
-	{
-		[the_view removeTrackingArea:existing_area];
-		[existing_area release];
-	}
-
-	new_area = [[NSTrackingArea alloc] initWithRect:NSZeroRect
-		options:(NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved
-			| NSTrackingActiveInActiveApp | NSTrackingInVisibleRect)
-		owner:the_view
-		userInfo:nil];
-	[the_view addTrackingArea:new_area];
-	return new_area;
-}
 
 /* Expanded into both subclasses so the event plumbing exists once.
 
@@ -148,40 +128,10 @@ static NSTrackingArea* cocoaLabelReplaceTrackingArea(NSView* the_view, NSTrackin
 	if(![self isEnabled]) { return; } \
 	cocoaLabelHandleMouseMotion(self, [self ih], the_event); \
 } \
-- (void) mouseEntered:(NSEvent*)the_event \
-{ \
-	(void)the_event; \
-	if(![self isEnabled]) { return; } \
-	if([self ih]) { iupCocoaCommonBaseHandleMouseEnterWindowCallback([self ih]); } \
-} \
-- (void) mouseExited:(NSEvent*)the_event \
-{ \
-	/* Deliberately not gated on isEnabled: an app that deactivates the label from inside its own \
-	   ENTERWINDOW_CB (the label test does exactly that) would otherwise never see the leave and \
-	   would be stuck believing the pointer is still inside. */ \
-	(void)the_event; \
-	if([self ih]) { iupCocoaCommonBaseHandleMouseLeaveWindowCallback([self ih]); } \
-} \
-- (void) updateTrackingAreas \
-{ \
-	[super updateTrackingAreas]; \
-	_iupTrackingArea = cocoaLabelReplaceTrackingArea(self, _iupTrackingArea); \
-} \
-- (void) dealloc \
-{ \
-	if(nil != _iupTrackingArea) \
-	{ \
-		[self removeTrackingArea:_iupTrackingArea]; \
-		[_iupTrackingArea release]; \
-		_iupTrackingArea = nil; \
-	} \
-	[super dealloc]; \
-}
+/* enter/leave are not here: iupCocoaAddToParent installs a tracking area for every element,
+   so handling them in the label too would deliver each one twice. */
 
 @interface IupCocoaLabelTextField : NSTextField
-{
-	NSTrackingArea* _iupTrackingArea;
-}
 @property(nonatomic, assign) Ihandle* ih;
 @end
 
@@ -191,9 +141,6 @@ IUP_COCOA_LABEL_MOUSE_METHODS
 @end
 
 @interface IupCocoaLabelImageView : NSImageView
-{
-	NSTrackingArea* _iupTrackingArea;
-}
 @property(nonatomic, assign) Ihandle* ih;
 @end
 
