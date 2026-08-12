@@ -435,6 +435,27 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 	// or as a new cell, so set the stringValue of the cell to the
 	// nameArray value at row
 	[the_result setStringValue:string_item];
+
+	/* A view-based NSTableView draws its rows with these cell views, so FGCOLOR has to be applied
+	   here rather than on the table; cocoaListSetFgColorAttrib stores the value and reloads. */
+	{
+		Ihandle* cell_ih = (Ihandle*)objc_getAssociatedObject(table_view, IHANDLE_ASSOCIATED_OBJ_KEY);
+		if(NULL != cell_ih)
+		{
+			const char* fg_value = iupAttribGet(cell_ih, "FGCOLOR");
+			unsigned char r;
+			unsigned char g;
+			unsigned char b;
+			if(fg_value && iupStrToRGB(fg_value, &r, &g, &b))
+			{
+				[the_result setTextColor:[NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0]];
+			}
+			else
+			{
+				[the_result setTextColor:[NSColor controlTextColor]];
+			}
+		}
+	}
  
 	// Return the result
 	return the_result;
@@ -545,6 +566,170 @@ static NSTextField* cocoaListGetEditBoxTextField(Ihandle* ih)
 	}
 	return [(IupCocoaListEditBoxView*)root_widget iupTextField];
 }
+
+/* ---- Phase 1 colour + scrolling attributes ------------------------------------------------ */
+
+static NSTableView* cocoaListGetTableView(Ihandle* ih)
+{
+	id base = cocoaListGetBaseWidget(ih);
+	if([base isKindOfClass:[NSTableView class]])
+	{
+		return (NSTableView*)base;
+	}
+	if([base isKindOfClass:[NSScrollView class]])
+	{
+		id doc = [(NSScrollView*)base documentView];
+		if([doc isKindOfClass:[NSTableView class]])
+		{
+			return (NSTableView*)doc;
+		}
+	}
+	{
+		/* the EDITBOX composite keeps its table separately */
+		id root = (id)ih->handle;
+		if([root isKindOfClass:[IupCocoaListEditBoxView class]])
+		{
+			return [(IupCocoaListEditBoxView*)root iupTableView];
+		}
+	}
+	return nil;
+}
+
+static NSColor* cocoaListColorFromValue(const char* value)
+{
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
+	if(!value || !iupStrToRGB(value, &r, &g, &b))
+	{
+		return nil;
+	}
+	return [NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0];
+}
+
+static int cocoaListSetBgColorAttrib(Ihandle* ih, const char* value)
+{
+	NSColor* the_color = cocoaListColorFromValue(value);
+	NSTableView* table_view;
+	id base;
+
+	if(nil == the_color)
+	{
+		return 1;
+	}
+
+	base = cocoaListGetBaseWidget(ih);
+	if([base isKindOfClass:[NSComboBox class]])
+	{
+		[(NSComboBox*)base setBackgroundColor:the_color];
+	}
+	else if([base isKindOfClass:[NSTextField class]])
+	{
+		[(NSTextField*)base setBackgroundColor:the_color];
+	}
+
+	table_view = cocoaListGetTableView(ih);
+	if(nil != table_view)
+	{
+		[table_view setBackgroundColor:the_color];
+	}
+
+	{
+		NSTextField* edit_field = cocoaListGetEditBoxTextField(ih);
+		if(nil != edit_field)
+		{
+			[edit_field setBackgroundColor:the_color];
+		}
+	}
+	return 1;
+}
+
+static int cocoaListSetFgColorAttrib(Ihandle* ih, const char* value)
+{
+	NSColor* the_color = cocoaListColorFromValue(value);
+	NSTableView* table_view;
+	id base;
+
+	if(nil == the_color)
+	{
+		return 1;
+	}
+
+	base = cocoaListGetBaseWidget(ih);
+	if([base isKindOfClass:[NSComboBox class]])
+	{
+		[(NSComboBox*)base setTextColor:the_color];
+	}
+	else if([base isKindOfClass:[NSTextField class]])
+	{
+		[(NSTextField*)base setTextColor:the_color];
+	}
+
+	{
+		NSTextField* edit_field = cocoaListGetEditBoxTextField(ih);
+		if(nil != edit_field)
+		{
+			[edit_field setTextColor:the_color];
+		}
+	}
+
+	/* Table rows are NSTextField cell views built on demand in
+	   -tableView:viewForTableColumn:row:, which reads FGCOLOR back out of the Ihandle, so the
+	   value has to be stored before the reload. */
+	iupAttribSetStr(ih, "FGCOLOR", value);
+	table_view = cocoaListGetTableView(ih);
+	if(nil != table_view)
+	{
+		[table_view reloadData];
+	}
+	return 1;
+}
+
+/* TOPITEM scrolls so the given (1-based) item is the first visible row. Not applicable to a
+   dropdown, matching gtk. */
+static int cocoaListSetTopItemAttrib(Ihandle* ih, const char* value)
+{
+	NSTableView* table_view;
+	int pos = 1;
+
+	if(ih->data->is_dropdown)
+	{
+		return 0;
+	}
+	table_view = cocoaListGetTableView(ih);
+	if((nil == table_view) || !iupStrToInt(value, &pos))
+	{
+		return 0;
+	}
+	if(pos < 1)
+	{
+		pos = 1;
+	}
+	if(pos > [table_view numberOfRows])
+	{
+		pos = (int)[table_view numberOfRows];
+	}
+	if(pos < 1)
+	{
+		return 0;
+	}
+
+	{
+		NSScrollView* scroll_view = [table_view enclosingScrollView];
+		NSRect row_rect = [table_view rectOfRow:(pos - 1)];   /* IUP starts at 1 */
+		if(nil != scroll_view)
+		{
+			[[scroll_view contentView] scrollToPoint:NSMakePoint(0.0, row_rect.origin.y)];
+			[scroll_view reflectScrolledClipView:[scroll_view contentView]];
+		}
+		else
+		{
+			[table_view scrollRowToVisible:(pos - 1)];
+		}
+	}
+	return 0;
+}
+
 
 void iupdrvListAddItemSpace(Ihandle* ih, int* h)
 {
@@ -1930,7 +2115,10 @@ void iupdrvListInitClass(Iclass* ic)
 	iupClassRegisterAttribute(ic, "FONT", NULL, winListSetFontAttrib, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_MAPPED);  /* inherited */
 	
 	/* Visual */
-	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, winListSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "TXTBGCOLOR", IUPAF_NOT_MAPPED);
+#endif
+	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, cocoaListSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "TXTBGCOLOR", IUPAF_DEFAULT);
+	iupClassRegisterAttribute(ic, "FGCOLOR", NULL, cocoaListSetFgColorAttrib, IUPAF_SAMEASSYSTEM, "TXTFGCOLOR", IUPAF_DEFAULT);
+#if 0
 	
 	/* Special */
 	iupClassRegisterAttribute(ic, "FGCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "TXTFGCOLOR", IUPAF_NOT_MAPPED);
@@ -1945,7 +2133,16 @@ void iupdrvListInitClass(Iclass* ic)
   iupClassRegisterAttribute(ic, "SHOWDROPDOWN", NULL, cocoaListSetShowDropdownAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
 #if 0
 
-	iupClassRegisterAttribute(ic, "VISIBLEITEMS", NULL, NULL, IUPAF_SAMEASSYSTEM, "5", IUPAF_DEFAULT);
+#endif
+	/* gtk registers these four as NOT_SUPPORTED rather than implementing them; do the same so
+	   they are known attributes carrying the documented defaults. */
+	iupClassRegisterAttribute(ic, "VISIBLEITEMS", NULL, NULL, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_SUPPORTED);
+	/*OLD*/iupClassRegisterAttribute(ic, "VISIBLE_ITEMS", NULL, NULL, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_SUPPORTED);
+	iupClassRegisterAttribute(ic, "DROPEXPAND", NULL, NULL, IUPAF_SAMEASSYSTEM, "Yes", IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "AUTOREDRAW", NULL, NULL, IUPAF_SAMEASSYSTEM, "Yes", IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+
+	iupClassRegisterAttribute(ic, "TOPITEM", NULL, cocoaListSetTopItemAttrib, NULL, NULL, IUPAF_NO_INHERIT);
+#if 0
 	/*OLD*/iupClassRegisterAttribute(ic, "VISIBLE_ITEMS", NULL, NULL, IUPAF_SAMEASSYSTEM, "5", IUPAF_DEFAULT);
 	iupClassRegisterAttribute(ic, "DROPEXPAND", NULL, NULL, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "SPACING", iupListGetSpacingAttrib, winListSetSpacingAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);
