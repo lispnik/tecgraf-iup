@@ -15,6 +15,7 @@
 // so we don't have to worry about the Carbon headers disappearing in the future.
 #include "iupmac_keycodes.h"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -387,8 +388,18 @@ static int cocoaKeyDecode(NSEvent* ns_event, int mac_key_code)
     	&& ( (NSEventTypeKeyDown == [ns_event type]) || (NSEventTypeKeyUp == [ns_event type]) )
 	)
 	{
-		// turn event info into NSString
-		NSString* character_string = [ns_event characters];
+		/* Which string to read depends on the modifiers.
+		   -characters applies the layout: with Option held, Option+c composes "ç", so the base
+		   letter would be lost entirely. -charactersIgnoringModifiers gives the unmodified key,
+		   which is what the other drivers work from (gtk uses the keyval).
+		   Shift is deliberately still taken from -characters, because the shifted form IS the
+		   value IUP wants there ("!" rather than "1"), and the Shift flag is dropped for this
+		   ASCII range -- same rule as gtkKeyMap2Iup. */
+		BOOL has_non_shift_modifier = ([ns_event modifierFlags] &
+			(NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)) != 0;
+		NSString* character_string = has_non_shift_modifier
+			? [ns_event charactersIgnoringModifiers]
+			: [ns_event characters];
 //		NSLog(@"keydown string: %@", character_string);
 
 		// forces NSString to convert to ASCII-equivalent, if possible (lossy conversion)
@@ -402,6 +413,15 @@ static int cocoaKeyDecode(NSEvent* ns_event, int mac_key_code)
 		{
 			unichar first_char = [ascii_string characterAtIndex:0];
 			char ascii_char = (char)first_char;
+
+			/* With Ctrl, Option or Command held, IUP reports the UPPERCASE letter so that the
+			   K_cC / K_mC / K_yC constants match -- gtkKeyMap2Iup does the same ("If it has some
+			   of the other modifiers then use upper case version"). Without this, Cmd+C arrived
+			   as 0x80000063 while K_yC is 0x80000043, so every accelerator comparison failed. */
+			if(has_non_shift_modifier)
+			{
+				ascii_char = (char)toupper((unsigned char)ascii_char);
+			}
 			//int cb_val = 0xFF80 | ascii_char; // Many of Iup's constants seem to have leading bits set. This hack will add those bits. I don't seem to need it for the K_exclam to K_tilde range.
 			//cb_result = iupKeyCallKeyCb(ih, cb_val);
 			iup_result_key = (int)ascii_char;

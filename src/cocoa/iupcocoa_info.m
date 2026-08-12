@@ -166,43 +166,18 @@ void iupdrvGetCursorPos(int *x, int *y)
 
 void iupdrvGetKeyState(char* key)
 {
-	// We can't support this. The currentEvent may not be the right kind and will throw an exception when our code tries to call invalid methods for the wrong type.
-	NSEvent* the_event = [[NSApplication sharedApplication] currentEvent];
-	if([the_event modifierFlags] & NSEventModifierFlagShift)
-	{
-		key[0] = 'S';
-	}
-	else
-	{
-		key[0] = ' ';
-	}
-	if([the_event modifierFlags] & NSEventModifierFlagControl)
-	{
-		key[1] = 'C';
-	}
-	else
-	{
-		key[1] = ' ';
-	}
-	if([the_event modifierFlags] & NSEventModifierFlagOption)
-	{
-		key[2] = 'A';
-	}
-	else
-	{
-		key[2] = ' ';
-	}
-	if([the_event modifierFlags] & NSEventModifierFlagCommand)
-	{
-		key[3] = 'Y';
-	}
-	else
-	{
-		key[3] = ' ';
-	}
+	/* Was reading [NSApp currentEvent], which is only a key event while one is being dispatched --
+	   its own comment said "We can't support this". Queried from anywhere else (a timer, an idle
+	   callback, a button ACTION) currentEvent is nil or some other event type, so MODKEYSTATE
+	   reported no modifiers held. CGEventSourceFlagsState polls the actual hardware state and is
+	   valid at any time; this is the implementation already sitting in the unbuilt iupmac_info.m. */
+	CGEventFlags flags = CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState);
 
+	key[0] = (flags & kCGEventFlagMaskShift)     ? 'S' : ' ';
+	key[1] = (flags & kCGEventFlagMaskControl)   ? 'C' : ' ';
+	key[2] = (flags & kCGEventFlagMaskAlternate) ? 'A' : ' ';   /* Option */
+	key[3] = (flags & kCGEventFlagMaskCommand)   ? 'Y' : ' ';   /* Command -> IUP's "Sys" */
 	key[4] = 0;
-
 }
 
 char *iupdrvGetSystemName(void)
