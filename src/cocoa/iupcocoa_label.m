@@ -63,9 +63,57 @@ static NSImageView* cocoaLabelGetImageView(Ihandle* ih)
 }
 
 
+/* Single place that decides which image an image-label shows, transcribed from the Windows
+   backend (iupwin_label.c:54-69). The previous inline copies had the branches transposed: when
+   the label was inactive and IMINACTIVE *was* set they discarded it and made IMAGE inactive, and
+   when it was inactive with no IMINACTIVE they passed that NULL straight to iupImageGetImage.
+   IMINACTIVE is documented GTK/Motif-only so it is deliberately not registered, but an
+   unregistered attribute still reaches the hash table, so reading it here matches Windows. */
+static void cocoaLabelSetNativeImage(Ihandle* ih, const char* image_name, int is_active)
+{
+	NSImageView* image_view = cocoaLabelGetImageView(ih);
+	const char* name;
+	int make_inactive = 0;
+
+	if(nil == image_view)
+	{
+		return;
+	}
+
+	if(is_active)
+	{
+		name = image_name;
+	}
+	else
+	{
+		name = iupAttribGet(ih, "IMINACTIVE");
+		if(!name)
+		{
+			name = image_name;
+			make_inactive = 1;
+		}
+	}
+
+	if(!name)
+	{
+		[image_view setImage:nil];
+		return;
+	}
+
+	[image_view setImage:iupImageGetImage(name, ih, make_inactive, NULL)];
+}
+
+
 void iupdrvLabelAddExtraPadding(Ihandle* ih, int *x, int *y)
 {
-	*x += 4;
+	/* Every other backend makes this a no-op, but NSTextFieldCell insets its title by about 2px
+	   on each side, so a text label sized to exactly iupdrvFontGetMultiLineStringSize clips.
+	   The inset is real only for text: an NSImageView has none, and adding it to a separator
+	   made a vertical rule 6px wide where GTK and Windows give 2. */
+	if(iupLabelGetTypeBeforeMap(ih) == IUP_LABEL_TEXT)
+	{
+		*x += 4;
+	}
 }
 
 
@@ -84,7 +132,10 @@ static int cocoaLabelSetPaddingAttrib(Ihandle* ih, const char* value)
 		// But this can require a new layout, so we need IupRefresh.
 		IupRefresh(ih);
 	}
-	return 0;
+	/* Must return 1 so the value stays in the hash table. iupAttribUpdate() removes any attribute
+	   whose setter returns 0 (iup_attrib.c), and the Cocoa layout code reads PADDING back with
+	   iupAttribGet -- so returning 0 silently discarded any padding set before map. */
+	return 1;
 }
 
 
@@ -570,45 +621,11 @@ static int cocoaLabelSetImageAttrib(Ihandle* ih, const char* value)
 	
 	if(ih->data->type == IUP_LABEL_IMAGE)
 	{
-		NSImageView* image_view = cocoaLabelGetImageView(ih);
-		if(nil == image_view)
-		{
-			return 0;
-		}
-		
-		char* name;
-		int make_inactive = 0;
-		
-		if (iupdrvIsActive(ih))
-		{
-			make_inactive = 0;
-		}
-		else
-		{
-			name = iupAttribGet(ih, "IMINACTIVE");
-			if (!name)
-			{
-				make_inactive = 1;
-			}
-		}
-		
-		
-		id the_bitmap;
-		the_bitmap = iupImageGetImage(value, ih, make_inactive, NULL);
-		int width;
-		int height;
-		int bpp;
-		
-		iupdrvImageGetInfo(the_bitmap, &width, &height, &bpp);
-		
-		// FIXME: What if the width and height change? Do we change it or leave it alone?
-		NSSize new_size = NSMakeSize(width, height);
-		NSRect the_frame = [image_view frame];
-		the_frame.size = new_size;
-		[image_view setFrame:the_frame];
-
-		[image_view setImage:the_bitmap];
-		
+		/* Deliberately no longer resizes the view: the frame belongs to
+		   iupdrvBaseLayoutUpdateMethod, which derives it from ih->currentwidth/currentheight, so
+		   writing it here only desynchronised the two until the next layout pass. Neither GTK nor
+		   Windows resizes on IMAGE set, and IupAnimatedLabel re-sets IMAGE on every timer tick. */
+		cocoaLabelSetNativeImage(ih, value, iupdrvIsActive(ih));
 		return 1;
 	}
 	else
@@ -655,64 +672,17 @@ static int cocoaLabelMapMethod(Ihandle* ih)
 		if (value)
 		{
 			ih->data->type = IUP_LABEL_IMAGE;
-			
-			char *name;
-			int make_inactive = 0;
-			
-			if (iupdrvIsActive(ih))
-    name = iupAttribGet(ih, "IMAGE");
-			else
-			{
-    name = iupAttribGet(ih, "IMINACTIVE");
-    if (name)
-	{
-		name = iupAttribGet(ih, "IMAGE");
-		make_inactive = 1;
-	}
-			}
-			
-			
-			id the_bitmap;
-			the_bitmap = iupImageGetImage(name, ih, make_inactive, NULL);
-			int width;
-			int height;
-			int bpp;
-			
-			iupdrvImageGetInfo(the_bitmap, &width, &height, &bpp);
 
-//			static int woffset = 0;
-//			static int hoffset = 0;
-			
+			int width = 0;
+			int height = 0;
+			int bpp = 0;
+
+			/* Size the initial frame from the image purely as a placeholder; the real frame
+			   arrives from iupdrvBaseLayoutUpdateMethod once IUP computes the layout. */
+			iupdrvImageGetInfo(iupImageGetImage(value, ih, 0, NULL), &width, &height, &bpp);
+
 			NSImageView* image_view = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
-//			NSImageView* image_view = [[NSImageView alloc] initWithFrame:NSMakeRect(woffset, hoffset, width, height)];
-			[image_view setImage:the_bitmap];
-			
-//			woffset += 30;
-//			hoffset += 30;
-			
 			the_label = image_view;
-			
-#if 0
-			if (!the_bitmap)
-					return;
-			
-			/* must use this info, since image can be a driver image loaded from resources */
-			iupdrvImageGetInfo(hBitmap, &width, &height, &bpp);
-
-			
-			NSBitmapImageRep* bitmap_image = [[NSBitmapImageRep alloc]
-									 initWithBitmapDataPlanes:NULL
-									 pixelsWide: width
-									 pixelsHigh: height
-									 bitsPerSample: 8
-									 samplesPerPixel: 4
-									 hasAlpha: YES
-									 isPlanar: NO
-									 colorSpaceName: NSCalibratedRGBColorSpace
-									 bytesPerRow: width * 4
-									 bitsPerPixel: 32]
-#endif
-
 		}
 		else
 		{
@@ -801,7 +771,14 @@ static int cocoaLabelMapMethod(Ihandle* ih)
 	ih->handle = the_label;
 	iupCocoaSetAssociatedViews(ih, the_label, the_label);
 
-	
+	/* Now that ih->handle is set, cocoaLabelSetNativeImage can find the view. Doing this here
+	   rather than inline above keeps IMINACTIVE handling in exactly one place. */
+	if(IUP_LABEL_IMAGE == ih->data->type)
+	{
+		cocoaLabelSetNativeImage(ih, iupAttribGet(ih, "IMAGE"), iupdrvIsActive(ih));
+	}
+
+
 	
 	/* add to the parent, all GTK controls must call this. */
 //	iupgtkAddToParent(ih);
@@ -880,10 +857,9 @@ void iupdrvLabelInitClass(Iclass* ic)
   iupClassRegisterAttribute(ic, "WORDWRAP", NULL, cocoaLabelSetWordWrapAttrib, NULL, NULL, IUPAF_DEFAULT);
   iupClassRegisterAttribute(ic, "ELLIPSIS", NULL, cocoaLabelSetEllipsisAttrib, NULL, NULL, IUPAF_DEFAULT);
 
-#if 0
-  /* IupLabel GTK only */
-  iupClassRegisterAttribute(ic, "MARKUP", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);
-#endif
+  /* IupLabel GTK only -- pango markup has no Cocoa equivalent. Register it the way Windows does
+     so it is a known-but-unsupported attribute rather than an unknown one. */
+  iupClassRegisterAttribute(ic, "MARKUP", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
 	
 
 	/* New API for view specific contextual menus (Mac only) */
