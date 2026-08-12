@@ -176,6 +176,18 @@ static int run(Ihandle* t)
       chk(window_titled==1 && has_mine,
           "IupSubmenu(\"Window\") appends into the system menu",buf); }
 
+    { /* AppKit adds the application's titled windows to the registered windows menu itself.
+         Seeing our own dialog listed there proves AppKit is actively managing this menu -- which
+         is the precondition for the Move & Resize / Fill tiling commands. Those are built when
+         the menu is displayed and never appear in itemArray, so they cannot be asserted directly;
+         this is the closest automatable proxy. (An untitled window is excluded by AppKit, so the
+         dialog must have a TITLE for this to hold.) */
+      BOOL listed=NO;
+      for(NSMenuItem* mi in [wm itemArray])
+        if([[mi title] isEqualToString:@"menu parity"]) listed=YES;
+      snprintf(buf,sizeof buf,"dialog listed in Window menu: %s",listed?"yes":"NO");
+      chk(listed,"AppKit manages the Window menu (window list populated)",buf); }
+
     { NSMenuItem* app_item=[bar itemAtIndex:0];
       BOOL has_services=NO;
       for(NSMenuItem* mi in [[app_item submenu] itemArray])
