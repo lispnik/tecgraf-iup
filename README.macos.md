@@ -63,10 +63,13 @@ the failure mode this backend had.
   emacs binding for move-to-line-start inside a text field.
 - **Mnemonics are stripped, not implemented.** `&` is removed from titles; there is no
   Alt-key activation, which macOS has no convention for.
-- **`IupSetAttribute(dlg, "SIZE", NULL)` on a shown dialog zeroes its current size** while
-  the native window keeps its own, so the two disagree until something forces a refresh.
-  The `plot` sample uses that pattern and lays out too large as a result. The zeroing is in
-  dialog layout code shared with the other backends, not in the Cocoa driver.
+- **Dialogs sized in character units come out wider than on GTK/Windows.** `SIZE` is in
+  quarter-character units, so a dialog is `charwidth * SIZE / 4` pixels wide, and the Cocoa
+  driver's `charwidth` averages `a-zA-Z` — 7.75px for the 13pt system font, which rounds to
+  **8**. Averaging lowercase only, which is closer to what `tmAveCharWidth` and Pango's
+  `approximate_char_width` report, gives 6.80 → **7**. So `plot.c`'s `SIZE="300x"` opens at
+  600px here against roughly 525px elsewhere. Changing the metric would move every control
+  sized in character units, so it has been measured but not changed.
 - **IupMatrix title cells still render light in Dark Mode.** Cell values are correct; the
   title background comes from the shared matrix code's native-parent fallback.
 
