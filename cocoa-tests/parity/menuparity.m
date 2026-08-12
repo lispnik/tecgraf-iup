@@ -5,7 +5,7 @@
 #include "iup_object.h"
 
 static int g_gaps=0;
-static Ihandle *it_check, *it_img, *it_hide, *sub, *sub_img, *menu;
+static Ihandle *it_check, *it_img, *it_hide, *sub, *sub_img, *sub_help, *sub_window, *menu;
 /* accelerator cases: title -> expected keyEquivalent / modifier mask */
 static Ihandle* g_accel[16];
 static int accel_cb(Ihandle* ih){ return IUP_DEFAULT; }
@@ -136,15 +136,52 @@ static int run(Ihandle* t)
              [[mi keyEquivalent] UTF8String]);
     chk([[mi keyEquivalent] length]==0,"retitling without a tab clears the shortcut",buf); }
 
-  { /* An application that supplies a menu bar should get ITS menus, not its menus plus the
-       placeholder File/Edit/Format/View/Window/Help that IupOpen installs. Index 0 is the
-       application menu, which macOS requires and IUP cannot express. */
+  { /* The application's menus replace the stock File/Edit/Format/View, but the Window menu
+       stays: IupMainMenu.nib marks it systemMenu="window", so AppKit registered it and that
+       registration is what supplies the window list and the Move & Resize tiling commands. */
     NSMenu* bar=[NSApp mainMenu];
+    NSMenu* wm=[NSApp windowsMenu];
     NSMutableString* titles=[NSMutableString string];
-    for(NSInteger i=0;i<[bar numberOfItems];i++)
-      [titles appendFormat:@"%@%@",i?@" ":@"",[[bar itemAtIndex:i] title]];
+    NSInteger win_index=-1, help_index=-1, sub_index=-1;
+    BOOL same_object=NO;
+    for(NSInteger i=0;i<[bar numberOfItems];i++){
+      NSMenuItem* mi=[bar itemAtIndex:i];
+      [titles appendFormat:@"%@%@",i?@" ":@"",[mi title]];
+      if(wm && [mi submenu]==wm){ same_object=YES; win_index=i; }
+      if([[mi title] isEqualToString:@"Help"]) help_index=i;
+      if([[mi title] isEqualToString:@"Sub"])  sub_index=i;
+    }
     snprintf(buf,sizeof buf,"bar = %s",[titles UTF8String]);
-    chk([bar numberOfItems]==3, "menu bar is the app menu plus only the IUP menus", buf); }
+    chk(wm!=nil && same_object,"Window menu survives and is the registered windowsMenu",buf);
+
+    snprintf(buf,sizeof buf,"Sub@%ld Window@%ld Help@%ld",(long)sub_index,(long)win_index,(long)help_index);
+    chk(sub_index>0 && win_index>sub_index && help_index>win_index,
+        "order: app menus, then Window, then Help",buf);
+
+    { NSMutableString* wi=[NSMutableString string];
+      for(NSMenuItem* mi in [wm itemArray]) if([[mi title] length]) [wi appendFormat:@"%@ ",[mi title]];
+      snprintf(buf,sizeof buf,"%s",[wi UTF8String]);
+      chk(wm && [wm numberOfItems]>=3,"Window menu keeps Minimize / Zoom / Bring All to Front",buf); }
+
+    { /* An application can extend the standard menu: the backend adopts a nib-provided menu
+         whose title matches, so IupSubmenu("Window", ...) appends into the system menu rather
+         than adding a second one. Emergent from merge-by-title, so pin it down here. */
+      NSInteger window_titled=0; BOOL has_mine=NO;
+      for(NSInteger i=0;i<[bar numberOfItems];i++)
+        if([[[bar itemAtIndex:i] title] isEqualToString:@"Window"]) window_titled++;
+      for(NSMenuItem* mi in [wm itemArray])
+        if([[mi title] isEqualToString:@"MyPanelX"]) has_mine=YES;
+      snprintf(buf,sizeof buf,"%ld item(s) titled Window in the bar, MyPanelX inside=%d",
+               (long)window_titled,(int)has_mine);
+      chk(window_titled==1 && has_mine,
+          "IupSubmenu(\"Window\") appends into the system menu",buf); }
+
+    { NSMenuItem* app_item=[bar itemAtIndex:0];
+      BOOL has_services=NO;
+      for(NSMenuItem* mi in [[app_item submenu] itemArray])
+        if([[mi title] isEqualToString:@"Services"]) has_services=YES;
+      snprintf(buf,sizeof buf,"app menu '%s', Services=%s",[[app_item title] UTF8String],has_services?"present":"MISSING");
+      chk(has_services,"application menu at index 0 still carries Services",buf); } }
 
   printf("\n%d gap(s)\n",g_gaps);
   IupExitLoop(); return IUP_DEFAULT;
@@ -182,7 +219,10 @@ int main(int argc,char**argv)
                    g_accel[13],g_accel[14],NULL);
   sub     =IupSubmenu("Sub",inner);
   sub_img =IupSubmenu("SubImg",IupMenu(IupItem("Inner2",NULL),NULL));
-  menu=IupMenu(sub,sub_img,NULL);
+  sub_help=IupSubmenu("&Help",IupMenu(IupItem("About",NULL),NULL));
+  /* merge-by-title: this must land IN the system Window menu, not create a second one */
+  sub_window=IupSubmenu("Window",IupMenu(IupItem("MyPanelX",NULL),NULL));
+  menu=IupMenu(sub,sub_img,sub_help,sub_window,NULL);
   IupSetHandle("_MENU_",menu);
 
   dlg=IupDialog(IupVbox(IupLabel("menu parity"),NULL));

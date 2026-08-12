@@ -642,17 +642,33 @@ static int cocoaMenuMapMethod(Ihandle* ih)
 		   Services, Hide and Quit -- and IUP has no way to express it. */
 		if([main_menu numberOfItems] > 1)
 		{
-			/* AppKit holds separate references to these; drop them before the menus go away.
-			   The Services menu lives inside the application menu, which survives, so it is left
-			   alone. */
-			[NSApp setWindowsMenu:nil];
+			/* The Window menu is kept. IupMainMenu.nib marks it systemMenu="window", so AppKit's
+			   nib loader registered it with -setWindowsMenu:, and that registration is what gives
+			   the menu the list of open windows and the Move & Resize / Fill tiling commands.
+			   Those come from the registered object itself, so a freshly built NSMenu titled
+			   "Window" would not reproduce them -- the item to keep has to be identified by
+			   pointer, not by title.
+
+			   Help is not kept: most IUP applications define their own Help submenu, and
+			   restoring the stock one would leave them showing two. The Services menu lives
+			   inside the application menu at index 0, which survives, so it needs nothing. */
+			NSMenu* windows_menu = [NSApp windowsMenu];
+			NSInteger item_index;
+
 			if([NSApp respondsToSelector:@selector(setHelpMenu:)])
 			{
-				[NSApp setHelpMenu:nil];
+				[NSApp setHelpMenu:nil];   /* dropped below; do not leave AppKit a dangling one */
 			}
-			while([main_menu numberOfItems] > 1)
+
+			/* Walk backwards: removing from the front renumbers everything after it. */
+			for(item_index = [main_menu numberOfItems] - 1; item_index >= 1; item_index--)
 			{
-				[main_menu removeItemAtIndex:1];
+				NSMenuItem* menu_item = [main_menu itemAtIndex:item_index];
+				if((nil != windows_menu) && ([menu_item submenu] == windows_menu))
+				{
+					continue;
+				}
+				[main_menu removeItemAtIndex:item_index];
 			}
 		}
 
@@ -1489,6 +1505,10 @@ static int cocoaSubmenuMapMethod(Ihandle* ih)
 			*/
 			NSInteger index_to_insert_at = -1; // start at -1 because we are 1 slot before our stopping marker
 			BOOL found_window_slot = NO;
+			/* Help is the exception to "insert before Window": macOS puts it last of all. The
+			   samples spell it "&Help", and the mnemonic is already stripped from ns_string here. */
+			BOOL is_help_menu = [ns_string isEqualToString:NSLocalizedString(@"Help", @"Help")]
+				|| [ns_string isEqualToString:@"Help"];
 			for(NSMenuItem* current_menu_item in [parent_menu itemArray])
 			{
 //				NSLog(@"current_menu_item.title %@", [current_menu_item title]);
@@ -1500,13 +1520,14 @@ static int cocoaSubmenuMapMethod(Ihandle* ih)
 				}
 			}
 			
-			if(found_window_slot)
+			if(found_window_slot && !is_help_menu)
 			{
 				[parent_menu insertItem:menu_item_for_submenu atIndex:index_to_insert_at];
 			}
 			else
 			{
-				NSLog(@"Warning: Did not find Window menu to insert category in");
+				/* No Window menu means the application replaced the whole bar with its own nib, so
+				   appending is the only sensible order -- and it is the right order for Help anyway. */
 				[parent_menu addItem:menu_item_for_submenu];
 			}
 			
