@@ -623,25 +623,15 @@ void iupCocoaMenuSetApplicationMenu(Ihandle* ih)
 
 static int cocoaMenuMapMethod(Ihandle* ih)
 {
-	if(iupMenuIsMenuBar(ih))
+	/* A dialog's MENU and the Mac-only application menu are the same thing here: macOS has one
+	   application-wide menu bar, not a bar per window. This branch used to return IUP_ERROR for
+	   the IupDialog case with the real code disabled behind `#if 0`, so IupSetAttribute(dlg,
+	   "MENU", ...) -- the portable way every IUP application builds a menu -- silently did
+	   nothing at all and the app was left with only the default menu bar. The submenus below
+	   merge into the existing bar by title, which is what keeps the standard application, Edit
+	   and Window menus intact. */
+	if(iupMenuIsMenuBar(ih) || iupCocoaMenuIsApplicationBar(ih))
 	{
-		return IUP_ERROR;
-#if 0
-		/* top level menu used for MENU attribute in IupDialog (a menu bar) */
-		NSLog(@"cocoaMenuMapMethod iupMenuIsMenuBar %@", ih->parent->handle);
-
-		NSMenu* main_menu = [NSApp mainMenu];
-		
-		ih->handle = main_menu;
-		
-		// not sure if I should retain it because I don't know if this is going to ever get released, but probably should to obey normal patterns.
-		[main_menu retain];
-#endif
-	}
-	else if(iupCocoaMenuIsApplicationBar(ih))
-	{
-		/* top level menu used for MENU attribute in IupDialog (a menu bar) */
-
 		NSMenu* main_menu = [NSApp mainMenu];
 		
 		ih->handle = main_menu;
@@ -731,14 +721,9 @@ void iupdrvMenuInitClass(Iclass* ic)
 	/* Driver Dependent Class functions */
 	ic->Map = cocoaMenuMapMethod;
 	ic->UnMap = cocoaMenuUnMapMethod;
-#if 0
-
-	/* Used by iupdrvMenuGetMenuBarSize */
-	iupClassRegisterAttribute(ic, "FONT", NULL, NULL, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_MAPPED);  /* inherited */
-	
-	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, iupdrvBaseSetBgColorAttrib, NULL, NULL, IUPAF_DEFAULT);
-
-#endif
+	/* menu colour and font are owned by the system appearance on macOS */
+	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED);
+	iupClassRegisterAttribute(ic, "FONT", NULL, NULL, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_SUPPORTED|IUPAF_NOT_MAPPED);
 }
 
 
@@ -819,6 +804,97 @@ static int cocoaItemSetActiveAttrib(Ihandle* ih, const char* value)
 	return 1;
 }
 */
+
+static NSMenuItem* cocoaMenuGetNativeItem(Ihandle* ih)
+{
+	id handle = (id)ih->handle;
+	if([handle isKindOfClass:[NSMenuItem class]])
+	{
+		return (NSMenuItem*)handle;
+	}
+	/* A submenu's handle is the NSMenu it owns; the state an application sets -- enabled, image --
+	   belongs to the NSMenuItem that presents it in the parent menu. */
+	if([handle isKindOfClass:[NSMenu class]])
+	{
+		NSMenu* the_menu = (NSMenu*)handle;
+		NSMenu* parent_menu = [the_menu supermenu] ? [the_menu supermenu] : [NSApp mainMenu];
+		for(NSMenuItem* menu_item in [parent_menu itemArray])
+		{
+			if([menu_item submenu] == the_menu)
+			{
+				return menu_item;
+			}
+		}
+	}
+	return nil;
+}
+
+static int cocoaItemSetValueAttrib(Ihandle* ih, const char* value)
+{
+	NSMenuItem* menu_item = cocoaMenuGetNativeItem(ih);
+	if(nil == menu_item)
+	{
+		return 0;
+	}
+	[menu_item setState:iupStrBoolean(value) ? NSOnState : NSOffState];
+	return 0;
+}
+
+static char* cocoaItemGetValueAttrib(Ihandle* ih)
+{
+	NSMenuItem* menu_item = cocoaMenuGetNativeItem(ih);
+	if(nil == menu_item)
+	{
+		return NULL;
+	}
+	return iupStrReturnChecked((int)[menu_item state]);
+}
+
+/* HIDEMARK asks for a checkable item that never draws its mark. NSMenuItem has no such flag, but
+   clearing the on/mixed state images achieves it without disturbing the state itself. */
+static int cocoaItemSetHideMarkAttrib(Ihandle* ih, const char* value)
+{
+	NSMenuItem* menu_item = cocoaMenuGetNativeItem(ih);
+	if(nil == menu_item)
+	{
+		return 1;
+	}
+	if(iupStrBoolean(value))
+	{
+		[menu_item setOnStateImage:nil];
+		[menu_item setMixedStateImage:nil];
+	}
+	else
+	{
+		[menu_item setOnStateImage:[NSImage imageNamed:@"NSMenuOnStateTemplate"]];
+		[menu_item setMixedStateImage:[NSImage imageNamed:@"NSMenuMixedStateTemplate"]];
+	}
+	return 1;
+}
+
+static int cocoaMenuItemSetImageAttrib(Ihandle* ih, const char* value)
+{
+	NSMenuItem* menu_item = cocoaMenuGetNativeItem(ih);
+	if(nil == menu_item)
+	{
+		return 1;
+	}
+	[menu_item setImage:value ? (NSImage*)iupImageGetImage(value, ih, 0, NULL) : nil];
+	return 1;
+}
+
+static int cocoaMenuItemSetActiveAttrib(Ihandle* ih, const char* value)
+{
+	NSMenuItem* menu_item = cocoaMenuGetNativeItem(ih);
+	if(nil != menu_item)
+	{
+		/* A menu whose items have targets re-enables them automatically unless this is off. */
+		[[menu_item menu] setAutoenablesItems:NO];
+		[menu_item setEnabled:iupStrBoolean(value) ? YES : NO];
+	}
+	return iupBaseSetActiveAttrib(ih, value);
+}
+
 
 static int cocoaItemMapMethod(Ihandle* ih)
 {
@@ -930,33 +1006,27 @@ void iupdrvItemInitClass(Iclass* ic)
   /* Driver Dependent Class functions */
   ic->Map = cocoaItemMapMethod;
   ic->UnMap = cocoaItemUnMapMethod;
-#if 0
 
-	/* Common */
-	iupClassRegisterAttribute(ic, "FONT", NULL, iupdrvSetFontAttrib, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_MAPPED);  /* inherited */
-	
-	/* Visual */
-#endif
-	// Drat: These don't work because I have to also disable autoenablesItems in the NSMenu's.
-//	iupClassRegisterAttribute(ic, "ACTIVE", cocoaItemGetActiveAttrib, cocoaItemSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
-#if 0
-	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, iupdrvBaseSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_DEFAULT);
-	
-	/* IupItem only */
-	iupClassRegisterAttribute(ic, "VALUE", gtkItemGetValueAttrib, gtkItemSetValueAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-#endif
+	/* Visual. An NSMenu re-enables its items automatically whenever they have a target, which is
+	   why the previous attempt at ACTIVE was abandoned ("Drat: These don't work because I have to
+	   also disable autoenablesItems"); the setter turns that off. */
+	iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, cocoaMenuItemSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
+
 	iupClassRegisterAttribute(ic, "TITLE", NULL, cocoaItemSetTitleAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-#if 0
-	iupClassRegisterAttribute(ic, "TITLEIMAGE", NULL, gtkItemSetTitleImageAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-	iupClassRegisterAttribute(ic, "IMAGE", NULL, gtkItemSetImageAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-	iupClassRegisterAttribute(ic, "IMPRESS", NULL, gtkItemSetImpressAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-	
 
+	/* IupItem only */
+	iupClassRegisterAttribute(ic, "VALUE", cocoaItemGetValueAttrib, cocoaItemSetValueAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+	/* An NSMenuItem has a single image slot, drawn to the left of the title -- which is what
+	   TITLEIMAGE describes -- so IMAGE and TITLEIMAGE both target it. */
+	iupClassRegisterAttribute(ic, "IMAGE", NULL, cocoaMenuItemSetImageAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "TITLEIMAGE", NULL, cocoaMenuItemSetImageAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "HIDEMARK", NULL, cocoaItemSetHideMarkAttrib, NULL, NULL, IUPAF_NOT_MAPPED);
 
-
-  /* IupItem GTK and Motif only */
-  iupClassRegisterAttribute(ic, "HIDEMARK", NULL, NULL, NULL, NULL, IUPAF_NOT_MAPPED);
-#endif
+	/* Not supported: a pressed-state image has no NSMenuItem equivalent, and menu colour and font
+	   are owned by the system appearance on macOS. Registered so they are known attributes. */
+	iupClassRegisterAttribute(ic, "IMPRESS", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED);
+	iupClassRegisterAttribute(ic, "FONT", NULL, NULL, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_SUPPORTED|IUPAF_NOT_MAPPED);
 }
 
 
@@ -1213,21 +1283,18 @@ void iupdrvSubmenuInitClass(Iclass* ic)
   /* Driver Dependent Class functions */
   ic->Map = cocoaSubmenuMapMethod;
   ic->UnMap = cocoaSubmenuUnMapMethod;
-#if 0
 
-	/* Common */
-	iupClassRegisterAttribute(ic, "FONT", NULL, iupdrvSetFontAttrib, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_MAPPED);  /* inherited */
-	
 	/* Visual */
-	iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, iupBaseSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
-	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, iupdrvBaseSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_DEFAULT);
-	
-	/* IupSubmenu only */
-#endif
+	iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, cocoaMenuItemSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
+
 	iupClassRegisterAttribute(ic, "TITLE", NULL, cocoaSubmenuSetTitleAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-#if 0
-	iupClassRegisterAttribute(ic, "IMAGE", NULL, gtkSubmenuSetImageAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-#endif
+
+	/* IupSubmenu only */
+	iupClassRegisterAttribute(ic, "IMAGE", NULL, cocoaMenuItemSetImageAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+
+	/* menu colour and font are owned by the system appearance on macOS */
+	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED);
+	iupClassRegisterAttribute(ic, "FONT", NULL, NULL, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_SUPPORTED|IUPAF_NOT_MAPPED);
 }
 
 
