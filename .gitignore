@@ -8,6 +8,10 @@ build/
 captures
 .externalNativeBuild
 BUILD/
+BUILD-xcode/
+.svn/
+cocoa-tests/build/
+cocoa-tests/probe.dylib
 *.swp
 *.tmp
 *.pbxuser
