@@ -80,6 +80,16 @@ static int run(Ihandle* t)
     snprintf(buf,sizeof buf,"native title='%s'",mi?[[mi title] UTF8String]:"?");
     chk(mi&&[[mi title] isEqualToString:@"Renamed"],"item TITLE round-trips (baseline)",buf); }
 
+  { /* An application that supplies a menu bar should get ITS menus, not its menus plus the
+       placeholder File/Edit/Format/View/Window/Help that IupOpen installs. Index 0 is the
+       application menu, which macOS requires and IUP cannot express. */
+    NSMenu* bar=[NSApp mainMenu];
+    NSMutableString* titles=[NSMutableString string];
+    for(NSInteger i=0;i<[bar numberOfItems];i++)
+      [titles appendFormat:@"%@%@",i?@" ":@"",[[bar itemAtIndex:i] title]];
+    snprintf(buf,sizeof buf,"bar = %s",[titles UTF8String]);
+    chk([bar numberOfItems]==3, "menu bar is the app menu plus only the IUP menus", buf); }
+
   printf("\n%d gap(s)\n",g_gaps);
   IupExitLoop(); return IUP_DEFAULT;
 }

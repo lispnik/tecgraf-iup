@@ -633,7 +633,29 @@ static int cocoaMenuMapMethod(Ihandle* ih)
 	if(iupMenuIsMenuBar(ih) || iupCocoaMenuIsApplicationBar(ih))
 	{
 		NSMenu* main_menu = [NSApp mainMenu];
-		
+
+		/* IupOpen installs a default bar (application, File, Edit, Format, View, Window, Help) so
+		   that an application with no menu still behaves like a Mac application. Once the
+		   application supplies its own menu bar, those placeholders must go: otherwise its menus
+		   simply appear alongside them and the user sees both a stock File menu and their own.
+		   Index 0 is kept because macOS requires an application menu -- the one carrying About,
+		   Services, Hide and Quit -- and IUP has no way to express it. */
+		if([main_menu numberOfItems] > 1)
+		{
+			/* AppKit holds separate references to these; drop them before the menus go away.
+			   The Services menu lives inside the application menu, which survives, so it is left
+			   alone. */
+			[NSApp setWindowsMenu:nil];
+			if([NSApp respondsToSelector:@selector(setHelpMenu:)])
+			{
+				[NSApp setHelpMenu:nil];
+			}
+			while([main_menu numberOfItems] > 1)
+			{
+				[main_menu removeItemAtIndex:1];
+			}
+		}
+
 		ih->handle = main_menu;
 
 		// not sure if I should retain it because I don't know if this is going to ever get released, but probably should to obey normal patterns.
@@ -729,6 +751,30 @@ void iupdrvMenuInitClass(Iclass* ic)
 
 
 
+
+/* Every string in this file is a menu title, and IUP titles may carry a "&" mnemonic marker.
+   macOS has no menu mnemonics, so the marker has to be removed or it shows up literally -- real
+   applications were displaying "&File" and "F&ormat" in the menu bar. NSMenuItem's
+   -setTitleWithMnemonic: also strips it, but it is deprecated and does not exist on NSMenu, so
+   both go through IUP's own helper instead. */
+static NSString* cocoaMenuTitleString(const char* title)
+{
+	NSString* ns_string;
+	char* stripped_str;
+
+	if(!title)
+	{
+		return @"";
+	}
+	stripped_str = iupStrProcessMnemonic(title, NULL, 0);   /* remove & */
+	ns_string = iupCocoaStringFromCStr(stripped_str);
+	if(stripped_str && (stripped_str != title))
+	{
+		free(stripped_str);
+	}
+	return ns_string;
+}
+
 static int cocoaItemSetTitleAttrib(Ihandle* ih, const char* value)
 {
 //	char *str;
@@ -747,13 +793,13 @@ static int cocoaItemSetTitleAttrib(Ihandle* ih, const char* value)
 	}
 	else
 	{
-		ns_string = iupCocoaStringFromCStr(value);
+		ns_string = cocoaMenuTitleString(value);
 
 	}
 	
 	// Mnemonic is not actually supported on Mac. Maybe it does something on GNUStep?
 	// However it does seem to strip the & from being displayed in the menu, so it is useful.
-	[menu_item setTitleWithMnemonic:ns_string];
+	[menu_item setTitle:ns_string];
 	//[menu_item setTitle:ns_string];
 
 	
@@ -942,7 +988,7 @@ static int cocoaItemMapMethod(Ihandle* ih)
 	}
 	else
 	{
-		ns_string = iupCocoaStringFromCStr(c_title);
+		ns_string = cocoaMenuTitleString(c_title);
 		
 	}
 	// search through parent to see if this item already exists
@@ -1050,7 +1096,7 @@ static int cocoaSubmenuSetTitleAttrib(Ihandle* ih, const char* value)
 	}
 	else
 	{
-		ns_string = iupCocoaStringFromCStr(value);
+		ns_string = cocoaMenuTitleString(value);
 		
 	}
 	
@@ -1069,7 +1115,7 @@ static int cocoaSubmenuSetTitleAttrib(Ihandle* ih, const char* value)
 	}
 	else
 	{
-		ns_string = iupCocoaStringFromCStr(value);
+		ns_string = cocoaMenuTitleString(value);
 		
 	}
 	
@@ -1159,7 +1205,7 @@ static int cocoaSubmenuMapMethod(Ihandle* ih)
 		}
 		else
 		{
-			ns_string = iupCocoaStringFromCStr(c_title);
+			ns_string = cocoaMenuTitleString(c_title);
 			
 		}
 		
@@ -1222,7 +1268,7 @@ static int cocoaSubmenuMapMethod(Ihandle* ih)
 			
 			ih->handle = menu_item_for_submenu;
 //			[menu_item_for_submenu setTitle:ns_string];
-			[menu_item_for_submenu setTitleWithMnemonic:ns_string];
+			[menu_item_for_submenu setTitle:ns_string];
 
 			/*
 			// RepresentedObject is to handle the callbacks
