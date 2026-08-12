@@ -110,6 +110,10 @@ void iupdrvButtonAddBorders(Ihandle* ih, int *x, int *y)
 
 }
 
+/* defined further down, next to the map method */
+static void cocoaButtonApplyTitleColor(Ihandle* ih);
+static NSCellImagePosition cocoaButtonCellImagePosition(int iup_img_position);
+
 static int cocoaButtonSetTitleAttrib(Ihandle* ih, const char* value)
 {
 	id the_button = ih->handle;
@@ -129,12 +133,11 @@ static int cocoaButtonSetTitleAttrib(Ihandle* ih, const char* value)
 			}
 			
 			[the_button setTitle:ns_string];
+			cocoaButtonApplyTitleColor(ih);
 			
 			if(ih->data->type & IUP_BUTTON_IMAGE)
 			{
-				// TODO: FEATURE: Cocoa allows text to be placed in different positions
-				// https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/Button/Tasks/SettingButtonImage.html
-				[the_button setImagePosition:NSImageLeft];
+				[the_button setImagePosition:cocoaButtonCellImagePosition(ih->data->img_position)];
 			}
 			else
 			{
@@ -179,6 +182,365 @@ void cocoaButtonLayoutUpdateMethod(Ihandle *ih)
 }
 
 
+/* IupButton must deliver BUTTON_CB (iup_button.c registers it for every platform); gtk connects
+   it to button-press/release-event and Windows handles WM_*BUTTONDOWN/UP. The Cocoa backend had
+   the code for it commented out in IupCocoaButtonReceiver with a note that Cocoa buttons do not
+   normally report press/release pairs -- true of the target/action mechanism, but the events are
+   right there in the responder chain.
+
+   NSButton is not like the label: -mouseDown: runs the cell's tracking loop, which sends the
+   target/action (IUP's ACTION callback) and normally swallows the matching mouse-up. So super
+   must still be called, and the release is reported once it returns. IUP documents both
+   BUTTON_CB calls as occurring before ACTION; here the release necessarily lands after it,
+   because that is when the platform tells us the button was let go. The press ordering is
+   correct, and _iupSentRelease keeps the release from being reported twice if a future macOS
+   does deliver -mouseUp: separately. */
+@interface IupCocoaButton : NSButton
+{
+	BOOL _iupSentRelease;
+}
+@end
+
+static void cocoaButtonHandleMouseButton(NSView* the_view, NSEvent* the_event, bool is_pressed)
+{
+	Ihandle* ih = (Ihandle*)objc_getAssociatedObject(the_view, IHANDLE_ASSOCIATED_OBJ_KEY);
+	if(NULL == ih)
+	{
+		return;
+	}
+	(void)iupCocoaCommonBaseHandleMouseButtonCallback(ih, the_event, the_view, is_pressed);
+}
+
+@implementation IupCocoaButton
+
+- (void) mouseDown:(NSEvent*)the_event
+{
+	if(![self isEnabled])
+	{
+		[super mouseDown:the_event];
+		return;
+	}
+
+	_iupSentRelease = NO;
+	cocoaButtonHandleMouseButton(self, the_event, true);
+
+	[super mouseDown:the_event];   /* tracks the mouse and fires ACTION */
+
+	if(!_iupSentRelease)
+	{
+		/* super consumed the mouse-up; use the event that ended the tracking loop so the
+		   reported coordinates are the release point rather than the press point. */
+		NSEvent* release_event = [NSApp currentEvent];
+		if((nil == release_event) || ([release_event type] != NSEventTypeLeftMouseUp))
+		{
+			release_event = the_event;
+		}
+		cocoaButtonHandleMouseButton(self, release_event, false);
+	}
+}
+
+- (void) mouseUp:(NSEvent*)the_event
+{
+	if([self isEnabled])
+	{
+		_iupSentRelease = YES;
+		cocoaButtonHandleMouseButton(self, the_event, false);
+	}
+	[super mouseUp:the_event];
+}
+
+- (void) rightMouseDown:(NSEvent*)the_event
+{
+	if([self isEnabled])
+	{
+		cocoaButtonHandleMouseButton(self, the_event, true);
+	}
+	/* NSView's implementation is what pops up the CONTEXTMENU */
+	[super rightMouseDown:the_event];
+}
+
+- (void) rightMouseUp:(NSEvent*)the_event
+{
+	if([self isEnabled])
+	{
+		cocoaButtonHandleMouseButton(self, the_event, false);
+	}
+	[super rightMouseUp:the_event];
+}
+
+- (void) otherMouseDown:(NSEvent*)the_event
+{
+	if([self isEnabled])
+	{
+		cocoaButtonHandleMouseButton(self, the_event, true);
+	}
+	[super otherMouseDown:the_event];
+}
+
+- (void) otherMouseUp:(NSEvent*)the_event
+{
+	if([self isEnabled])
+	{
+		cocoaButtonHandleMouseButton(self, the_event, false);
+	}
+	[super otherMouseUp:the_event];
+}
+
+@end
+
+
+static NSButton* cocoaButtonGetButton(Ihandle* ih)
+{
+	NSView* root_view = (NSView*)ih->handle;
+	if(![root_view isKindOfClass:[NSButton class]])
+	{
+		return nil;
+	}
+	return (NSButton*)root_view;
+}
+
+/* IUP's IMAGEPOSITION says where the image sits relative to the text. */
+static NSCellImagePosition cocoaButtonCellImagePosition(int iup_img_position)
+{
+	switch(iup_img_position)
+	{
+		case IUP_IMGPOS_RIGHT:  return NSImageRight;
+		case IUP_IMGPOS_TOP:    return NSImageAbove;
+		case IUP_IMGPOS_BOTTOM: return NSImageBelow;
+		case IUP_IMGPOS_LEFT:
+		default:                return NSImageLeft;
+	}
+}
+
+/* Single place that resolves which image the button shows, transcribed from iupwin_button.c.
+   The map method used to do `if (IMINACTIVE is set) make_inactive = 1;` and then apply that to
+   IMAGE regardless of whether the button was actually inactive -- so merely defining IMINACTIVE
+   greyed out an enabled button, and the IMINACTIVE image itself was never loaded at all. */
+static void cocoaButtonApplyImage(Ihandle* ih, int is_active)
+{
+	NSButton* the_button = cocoaButtonGetButton(ih);
+	const char* image_name = iupAttribGet(ih, "IMAGE");
+	const char* name;
+	int make_inactive = 0;
+
+	if((nil == the_button) || !(ih->data->type & IUP_BUTTON_IMAGE))
+	{
+		return;
+	}
+
+	if(is_active)
+	{
+		name = image_name;
+	}
+	else
+	{
+		name = iupAttribGet(ih, "IMINACTIVE");
+		if(!name)
+		{
+			name = image_name;
+			make_inactive = 1;
+		}
+	}
+
+	[the_button setImage:name ? iupImageGetImage(name, ih, make_inactive, NULL) : nil];
+
+	{
+		const char* press_name = iupAttribGet(ih, "IMPRESS");
+		if(press_name && *press_name != 0)
+		{
+			[the_button setAlternateImage:iupImageGetImage(press_name, ih, 0, NULL)];
+		}
+	}
+
+	if(ih->data->type & IUP_BUTTON_TEXT)
+	{
+		[the_button setImagePosition:cocoaButtonCellImagePosition(ih->data->img_position)];
+	}
+}
+
+/* FGCOLOR on an NSButton has to go through the attributed title -- there is no setTextColor:.
+   Setting a plain title resets any attributed one, so this is also how the colour is removed. */
+static void cocoaButtonApplyTitleColor(Ihandle* ih)
+{
+	NSButton* the_button = cocoaButtonGetButton(ih);
+	const char* fg_value;
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
+
+	if((nil == the_button) || !(ih->data->type & IUP_BUTTON_TEXT))
+	{
+		return;
+	}
+
+	fg_value = iupAttribGet(ih, "FGCOLOR");
+	if(fg_value && iupStrToRGB(fg_value, &r, &g, &b))
+	{
+		NSColor* the_color = [NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0];
+		NSMutableParagraphStyle* paragraph_style = [[NSMutableParagraphStyle alloc] init];
+		NSDictionary* attributes;
+		NSAttributedString* attributed_title;
+
+		[paragraph_style setAlignment:[the_button alignment]];
+		attributes = [NSDictionary dictionaryWithObjectsAndKeys:
+			the_color, NSForegroundColorAttributeName,
+			paragraph_style, NSParagraphStyleAttributeName,
+			[the_button font], NSFontAttributeName,
+			nil];
+		attributed_title = [[NSAttributedString alloc] initWithString:[the_button title] attributes:attributes];
+		[the_button setAttributedTitle:attributed_title];
+		[attributed_title release];
+		[paragraph_style release];
+	}
+	else
+	{
+		/* Back to the system colour, which is dynamic and follows Dark Mode. */
+		[the_button setTitle:[the_button title]];
+	}
+}
+
+
+static int cocoaButtonSetFgColorAttrib(Ihandle* ih, const char* value)
+{
+	/* IUP has not stored the new value yet, so put it in place first and let the funnel read it. */
+	iupAttribSetStr(ih, "FGCOLOR", value);
+	cocoaButtonApplyTitleColor(ih);
+	return 1;
+}
+
+static int cocoaButtonSetBgColorAttrib(Ihandle* ih, const char* value)
+{
+	NSButton* the_button = cocoaButtonGetButton(ih);
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
+
+	if(nil == the_button)
+	{
+		return 1;
+	}
+	/* -setBezelColor: tints the standard push-button bezel (10.12.2+). Windows and GTK3 both
+	   ignore BGCOLOR once a title or image is set, so tinting here is no worse than parity. */
+	if([the_button respondsToSelector:@selector(setBezelColor:)])
+	{
+		if(value && iupStrToRGB(value, &r, &g, &b))
+		{
+			[the_button setBezelColor:[NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0]];
+		}
+		else
+		{
+			[the_button setBezelColor:nil];
+		}
+	}
+	return 1;
+}
+
+static int cocoaButtonSetImageAttrib(Ihandle* ih, const char* value)
+{
+	if(ih->data->type & IUP_BUTTON_IMAGE)
+	{
+		iupAttribSetStr(ih, "IMAGE", value);
+		cocoaButtonApplyImage(ih, iupdrvIsActive(ih));
+		return 1;
+	}
+	return 1;
+}
+
+static int cocoaButtonSetImInactiveAttrib(Ihandle* ih, const char* value)
+{
+	iupAttribSetStr(ih, "IMINACTIVE", value);
+	cocoaButtonApplyImage(ih, iupdrvIsActive(ih));
+	return 1;
+}
+
+static int cocoaButtonSetImPressAttrib(Ihandle* ih, const char* value)
+{
+	iupAttribSetStr(ih, "IMPRESS", value);
+	cocoaButtonApplyImage(ih, iupdrvIsActive(ih));
+	return 1;
+}
+
+static int cocoaButtonSetAlignmentAttrib(Ihandle* ih, const char* value)
+{
+	NSButton* the_button = cocoaButtonGetButton(ih);
+	char value1[30];
+	char value2[30];
+
+	iupStrToStrStr(value, value1, value2, ':');
+
+	if(iupStrEqualNoCase(value1, "ARIGHT"))
+	{
+		ih->data->horiz_alignment = IUP_ALIGN_ARIGHT;
+	}
+	else if(iupStrEqualNoCase(value1, "ALEFT"))
+	{
+		ih->data->horiz_alignment = IUP_ALIGN_ALEFT;
+	}
+	else
+	{
+		ih->data->horiz_alignment = IUP_ALIGN_ACENTER;
+	}
+
+	if(iupStrEqualNoCase(value2, "ATOP"))
+	{
+		ih->data->vert_alignment = IUP_ALIGN_ATOP;
+	}
+	else if(iupStrEqualNoCase(value2, "ABOTTOM"))
+	{
+		ih->data->vert_alignment = IUP_ALIGN_ABOTTOM;
+	}
+	else
+	{
+		ih->data->vert_alignment = IUP_ALIGN_ACENTER;
+	}
+
+	if(nil != the_button)
+	{
+		switch(ih->data->horiz_alignment)
+		{
+			case IUP_ALIGN_ARIGHT: [the_button setAlignment:NSTextAlignmentRight];  break;
+			case IUP_ALIGN_ALEFT:  [the_button setAlignment:NSTextAlignmentLeft];   break;
+			default:               [the_button setAlignment:NSTextAlignmentCenter]; break;
+		}
+		/* the attributed title carries its own paragraph style, so rebuild it */
+		cocoaButtonApplyTitleColor(ih);
+	}
+	/* Vertical alignment is not settable on an NSButton title; Motif has the same restriction. */
+	return 0;
+}
+
+static char* cocoaButtonGetAlignmentAttrib(Ihandle* ih)
+{
+	char* horiz_align2str[3] = {"ALEFT", "ACENTER", "ARIGHT"};
+	char* vert_align2str[3] = {"ATOP", "ACENTER", "ABOTTOM"};
+	return iupStrReturnStrf("%s:%s", horiz_align2str[ih->data->horiz_alignment],
+		vert_align2str[ih->data->vert_alignment]);
+}
+
+static int cocoaButtonSetPaddingAttrib(Ihandle* ih, const char* value)
+{
+	iupStrToIntInt(value, &ih->data->horiz_padding, &ih->data->vert_padding, 'x');
+	if(ih->handle)
+	{
+		/* the common ComputeNaturalSize adds 2*padding, so the button has to be re-laid out */
+		IupRefresh(ih);
+	}
+	/* Return 1: iupAttribUpdate() drops any attribute whose setter returns 0, which would discard
+	   padding set before map. */
+	return 1;
+}
+
+static int cocoaButtonSetActiveAttrib(Ihandle* ih, const char* value)
+{
+	int is_active = iupStrBoolean(value);
+
+	/* gtk and win both swap in the inactive image; previously nothing happened at all. */
+	cocoaButtonApplyImage(ih, is_active);
+
+	return iupBaseSetActiveAttrib(ih, value);
+}
+
+
 static int cocoaButtonMapMethod(Ihandle* ih)
 {
 	char* value;
@@ -193,7 +555,7 @@ static int cocoaButtonMapMethod(Ihandle* ih)
 	
 	 NSButton* the_button = [[NSButton alloc] initWithFrame:NSMakeRect(woffset, hoffset, 0, 0)];
 	*/
-	NSButton* the_button = [[NSButton alloc] initWithFrame:NSZeroRect];
+	NSButton* the_button = [[IupCocoaButton alloc] initWithFrame:NSZeroRect];
 	// I seem to be getting a default "Button" title for image button.
 	[the_button setTitle:@""];
 	
@@ -221,10 +583,7 @@ static int cocoaButtonMapMethod(Ihandle* ih)
 			
 			[the_button setTitle:ns_string];
 
-			// TODO: FEATURE: Cocoa allows text to be placed in different positions
-			// https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/Button/Tasks/SettingButtonImage.html
-			[the_button setImagePosition:NSImageLeft];
-
+			[the_button setImagePosition:cocoaButtonCellImagePosition(ih->data->img_position)];
 		}
 		else
 		{
@@ -244,26 +603,7 @@ static int cocoaButtonMapMethod(Ihandle* ih)
 //		[the_button setBezelStyle:NSThickerSquareBezelStyle];
 
 		
-		NSImage* the_bitmap;
-		int make_inactive = 0;
-		
-
-		if(iupAttribGet(ih, "IMINACTIVE"))
-		{
-			make_inactive = 1;
-		}
-
-		the_bitmap = iupImageGetImage(value, ih, make_inactive, NULL);
-		[the_button setImage:the_bitmap];
-		
-		
-		value = iupAttribGet(ih, "IMPRESS");
-		if(value && *value!=0)
-		{
-			the_bitmap = iupImageGetImage(value, ih, make_inactive, NULL);
-			[the_button setAlternateImage:the_bitmap];
-		}
-		
+		/* the image itself is applied after ih->handle is set, by cocoaButtonApplyImage */
 	}
 	else
 	{
@@ -306,6 +646,10 @@ static int cocoaButtonMapMethod(Ihandle* ih)
 	objc_setAssociatedObject(the_button, IUP_COCOA_BUTTON_RECEIVER_OBJ_KEY, (id)button_receiver, OBJC_ASSOCIATION_ASSIGN);
 
 	
+	/* Both need ih->handle, so they run after it is assigned. */
+	cocoaButtonApplyImage(ih, iupdrvIsActive(ih));
+	cocoaButtonApplyTitleColor(ih);
+
 	// All Cocoa views shoud call this to add the new view to the parent view.
 	iupCocoaAddToParent(ih);
 
@@ -358,35 +702,28 @@ void iupdrvButtonInitClass(Iclass* ic)
 	
 
 	ic->LayoutUpdate = cocoaButtonLayoutUpdateMethod;
-#if 0
-	
-	/* Driver Dependent Attribute functions */
-	
-	/* Overwrite Common */
-	iupClassRegisterAttribute(ic, "STANDARDFONT", NULL, gtkButtonSetStandardFontAttrib, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NO_SAVE|IUPAF_NOT_MAPPED);
-	
 	/* Overwrite Visual */
-	iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, gtkButtonSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
-	
+	iupClassRegisterAttribute(ic, "ACTIVE", iupBaseGetActiveAttrib, cocoaButtonSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
+
 	/* Visual */
-	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, gtkButtonSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_DEFAULT);
-	
+	iupClassRegisterAttribute(ic, "BGCOLOR", iupBaseNativeParentGetBgColorAttrib, cocoaButtonSetBgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NO_SAVE);
+
 	/* Special */
-	iupClassRegisterAttribute(ic, "FGCOLOR", NULL, gtkButtonSetFgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGFGCOLOR", IUPAF_DEFAULT);
-#endif
+	iupClassRegisterAttribute(ic, "FGCOLOR", NULL, cocoaButtonSetFgColorAttrib, IUPAF_SAMEASSYSTEM, "DLGFGCOLOR", IUPAF_DEFAULT);
 
 	iupClassRegisterAttribute(ic, "TITLE", NULL, cocoaButtonSetTitleAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
 
-#if 0
 	/* IupButton only */
-	iupClassRegisterAttribute(ic, "ALIGNMENT", NULL, gtkButtonSetAlignmentAttrib, "ACENTER:ACENTER", NULL, IUPAF_NO_INHERIT);  /* force new default value */
-	iupClassRegisterAttribute(ic, "IMAGE", NULL, gtkButtonSetImageAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-	iupClassRegisterAttribute(ic, "IMINACTIVE", NULL, gtkButtonSetImInactiveAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-	iupClassRegisterAttribute(ic, "IMPRESS", NULL, NULL, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
-	
-	iupClassRegisterAttribute(ic, "PADDING", iupButtonGetPaddingAttrib, gtkButtonSetPaddingAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
-	iupClassRegisterAttribute(ic, "MARKUP", NULL, NULL, NULL, NULL, IUPAF_DEFAULT);
-#endif
+	iupClassRegisterAttribute(ic, "ALIGNMENT", cocoaButtonGetAlignmentAttrib, cocoaButtonSetAlignmentAttrib, IUPAF_SAMEASSYSTEM, "ACENTER:ACENTER", IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "IMAGE", NULL, cocoaButtonSetImageAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "IMINACTIVE", NULL, cocoaButtonSetImInactiveAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "IMPRESS", NULL, cocoaButtonSetImPressAttrib, NULL, NULL, IUPAF_IHANDLENAME|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+
+	iupClassRegisterAttribute(ic, "PADDING", iupButtonGetPaddingAttrib, cocoaButtonSetPaddingAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
+
+	/* GTK only -- pango markup has no Cocoa equivalent; register it as Windows does so it is a
+	   known-but-unsupported attribute rather than an unknown one. */
+	iupClassRegisterAttribute(ic, "MARKUP", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
 
 	/* New API for view specific contextual menus (Mac only) */
 	iupClassRegisterAttribute(ic, "CONTEXTMENU", iupCocoaCommonBaseGetContextMenuAttrib, iupCocoaCommonBaseSetContextMenuAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
