@@ -39,6 +39,19 @@ The script also builds two libraries IUP's `CMakeLists.txt` does not define as t
 whose dependencies are present — **IupIm** (`srcim/`) and **IupPlot** (`srcplot/`) — and
 links stubs for a few symbols macOS genuinely lacks. See `cocoa-tests/README.md`.
 
+## Stock images
+
+`IupImageLibOpen()` used to be a no-op here: every `__APPLE__` branch in
+`srcimglib/iup_image_library.c` was empty, and CMake compiled only the two logo files for
+this platform, so `IUP_FileOpen` and friends resolved to nothing. It now loads the **win32
+artwork** — those sets are plain `IupImageRGBA` pixel data, whereas the GTK sets mostly
+register a `gtk-` stock id for the icon theme to resolve, which has no meaning off GTK.
+
+A handful of legacy names (`IUP_Zoom`, `IUP_FileText`, `IUP_FontBold`, `IUP_FontDialog`,
+`IUP_FontItalic`, `IUP_WindowsCascade`, `IUP_WindowsTile`) live inside `#ifdef
+IUP_IMGLIB_OLD`, which nothing defines — they are unavailable on every platform, not just
+this one. Use `IUP_ZoomIn` / `IUP_ZoomOut` / `IUP_ZoomActualSize` / `IUP_ZoomSelection`.
+
 ## Tests
 
     cocoa-tests/sweep.sh        # launch every built sample, report pass/fail

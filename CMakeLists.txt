@@ -1058,8 +1058,12 @@ ELSEIF(IUP_USE_COCOA)
 	)
 
 	SET(IUPIMGLIB_COCOA_SOURCE_FILES
-		# TODO:
-		${CMAKE_SOURCE_DIR}/srcimglib/iup_imglib_logos48x48.c 
+		# The win32 sets, not the gtk ones: they are plain IupImageRGBA pixel data with no
+		# Win32 API, whereas the gtk sets mostly register a gtk- stock id for the icon theme
+		# to resolve, which has no meaning here.
+		${CMAKE_SOURCE_DIR}/srcimglib/iup_imglib_basewin32x32.c
+		${CMAKE_SOURCE_DIR}/srcimglib/iup_imglib_iconswin48x48.c
+		${CMAKE_SOURCE_DIR}/srcimglib/iup_imglib_logos48x48.c
 		${CMAKE_SOURCE_DIR}/srcimglib/iup_imglib_logos32x32.c
 	)
 	LIST(APPEND IUPIMGLIB_SOURCE_FILES

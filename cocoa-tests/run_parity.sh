@@ -21,7 +21,7 @@ fi
 
 NAMES=("$@")
 if [ ${#NAMES[@]} -eq 0 ]; then
-  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize)
+  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib)
 fi
 
 status=0
@@ -30,7 +30,7 @@ for name in "${NAMES[@]}"; do
   [ -e "$src" ] || { echo "no such harness: $name"; status=1; continue; }
   if ! clang -g -o "$BIN/$name" "$src" \
         -I"$IUP/include" -I"$IUP/src" -framework Cocoa \
-        -F"$FW" -framework iup -framework iupcontrols -framework iupcd -L"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/lib" -lcd -Wl,-rpath,"$FW" \
+        -F"$FW" -framework iup -framework iupcontrols -framework iupimglib -framework iupcd -L"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/lib" -lcd -Wl,-rpath,"$FW" \
         -Wno-deprecated-declarations 2>"$BIN/$name.buildlog"; then
     echo "=== $name: BUILD FAILED"; head -5 "$BIN/$name.buildlog"; status=1; continue
   fi

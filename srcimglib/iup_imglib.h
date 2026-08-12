@@ -7,8 +7,10 @@ extern "C" {
 
 #ifdef WIN32
 void iupImglibBaseLibWin16x16Open(void);     /* Used only by the Win32 driver */
-void iupImglibBaseLibWin32x32Open(void);
 #endif
+/* Not Win32-only: the pixel data behind these is plain IupImageRGBA, so the Cocoa driver
+   uses them too -- the gtk sets resolve gtk- stock ids and cannot be used off GTK. */
+void iupImglibBaseLibWin32x32Open(void);
 #ifndef WIN32
 void iupImglibBaseLibMot16x16Open(void);    /* Used only by the Motif driver */
 #endif
@@ -26,8 +28,8 @@ void iupImglibLogos48x48Open(void);
 
 void iupImglibCircleProgress(void);
 
+void iupImglibIconsWin48x48Open(void);      /* likewise portable, see above */
 #ifdef WIN32
-void iupImglibIconsWin48x48Open(void);
 #elif defined(MOTIF)
 #elif defined(GTK3)
 void iupImglibIconsGtk348x48Open(void);
