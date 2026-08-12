@@ -89,6 +89,12 @@ IUP_DRV_API bool iupCocoaCommonBaseHandleMouseButtonCallback(Ihandle* ih, NSEven
 // Returns a boolean specifying if the caller_should_not_propagate. (Trying to conform to the iupgtk counterpart.) So if false, call super, otherwise skip.
 IUP_DRV_API bool iupCocoaCommonBaseHandleMouseMotionCallback(Ihandle* ih, NSEvent* the_event, NSView* represented_view);
 
+/* ENTERWINDOW_CB / LEAVEWINDOW_CB. Nothing in the Cocoa backend implemented these before; a
+   control gets them by installing an NSTrackingArea and forwarding mouseEntered:/mouseExited:.
+   Semantics follow iupgtkEnterLeaveEvent, which ignores the callback's return value. */
+IUP_DRV_API void iupCocoaCommonBaseHandleMouseEnterWindowCallback(Ihandle* ih);
+IUP_DRV_API void iupCocoaCommonBaseHandleMouseLeaveWindowCallback(Ihandle* ih);
+
 // WHEEL_CB: WARNING: IUP does not support delta-y axis.
 IUP_DRV_API bool iupCocoaCommonBaseScrollWheelCallback(Ihandle* ih, NSEvent* the_event, NSView* represented_view);
 

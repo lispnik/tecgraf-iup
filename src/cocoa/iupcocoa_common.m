@@ -981,6 +981,24 @@ int iupCocoaCommonBaseIupButtonForCocoaButton(NSInteger which_cocoa_button)
 	}
 }
 
+void iupCocoaCommonBaseHandleMouseEnterWindowCallback(Ihandle* ih)
+{
+	Icallback callback_function = IupGetCallback(ih, "ENTERWINDOW_CB");
+	if(callback_function)
+	{
+		callback_function(ih);
+	}
+}
+
+void iupCocoaCommonBaseHandleMouseLeaveWindowCallback(Ihandle* ih)
+{
+	Icallback callback_function = IupGetCallback(ih, "LEAVEWINDOW_CB");
+	if(callback_function)
+	{
+		callback_function(ih);
+	}
+}
+
 bool iupCocoaCommonBaseHandleMouseButtonCallback(Ihandle* ih, NSEvent* the_event, NSView* represented_view, bool is_pressed)
 {
 	IFniiiis callback_function;
@@ -1027,7 +1045,7 @@ bool iupCocoaCommonBaseHandleMouseButtonCallback(Ihandle* ih, NSEvent* the_event
 		
 		int which_iup_button = iupCocoaCommonBaseIupButtonForCocoaButton(which_cocoa_button);
 	
-		NSLog(@"Iup mouse button callback: <x,y>=<%f, %f, %f>, is_pressed=%d, button_num:%d", converted_point.x, converted_point.y, inverted_y, is_pressed, which_iup_button);
+//		NSLog(@"Iup mouse button callback: <x,y>=<%f, %f, %f>, is_pressed=%d, button_num:%d", converted_point.x, converted_point.y, inverted_y, is_pressed, which_iup_button);
 
 	
 		int callback_result = callback_function(ih, which_iup_button, is_pressed, iupROUND(converted_point.x), iupROUND(inverted_y), mod_status);

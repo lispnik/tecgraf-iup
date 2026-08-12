@@ -33,6 +33,176 @@
 
 
 
+/* IupLabel must deliver BUTTON_CB, MOTION_CB, ENTERWINDOW_CB and LEAVEWINDOW_CB -- iup_label.c
+   registers them for every platform. GTK gets them by wrapping every label in a GtkEventBox;
+   Windows subclasses the static control with winLabelMsgProc. A stock NSTextField/NSImageView
+   delivers none of them, so subclass the two view types the label actually uses.
+
+   No NSBox subclass: Windows installs its message proc only for non-separator labels, and a 2px
+   separator is not a usable mouse target.
+
+   A category on NSTextField/NSImageView would have hijacked every such view in the process
+   (IupText's field, list and tree cell views); a GTK-style wrapper view would have changed what
+   ih->handle is, which the font, active, tips, background and layout code all key off. */
+
+static void cocoaLabelHandleMouseButton(NSView* the_view, Ihandle* ih, NSEvent* the_event, bool is_pressed)
+{
+	if(NULL == ih)
+	{
+		return;
+	}
+	(void)iupCocoaCommonBaseHandleMouseButtonCallback(ih, the_event, the_view, is_pressed);
+}
+
+static void cocoaLabelHandleMouseMotion(NSView* the_view, Ihandle* ih, NSEvent* the_event)
+{
+	if(NULL == ih)
+	{
+		return;
+	}
+	(void)iupCocoaCommonBaseHandleMouseMotionCallback(ih, the_event, the_view);
+}
+
+/* NSTrackingInVisibleRect makes AppKit maintain the region itself, so the constant frame changes
+   IUP's layout performs need no bookkeeping here. The returned area is owned by the caller. */
+static NSTrackingArea* cocoaLabelReplaceTrackingArea(NSView* the_view, NSTrackingArea* existing_area)
+{
+	NSTrackingArea* new_area;
+
+	if(nil != existing_area)
+	{
+		[the_view removeTrackingArea:existing_area];
+		[existing_area release];
+	}
+
+	new_area = [[NSTrackingArea alloc] initWithRect:NSZeroRect
+		options:(NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved
+			| NSTrackingActiveInActiveApp | NSTrackingInVisibleRect)
+		owner:the_view
+		userInfo:nil];
+	[the_view addTrackingArea:new_area];
+	return new_area;
+}
+
+/* Expanded into both subclasses so the event plumbing exists once.
+
+   -mouseDown: deliberately does not call super. NSTextField and NSImageView are NSControls, and
+   NSControl's -mouseDown: hands off to the cell's trackMouse:inRect:ofView:untilMouseUp:, which
+   is free to consume events up to and including the matching mouse-up; if it does, -mouseUp:
+   never runs and BUTTON_CB reports presses without releases. A label is display-only and has no
+   target/action, so there is nothing to gain from super and skipping it keeps the callback
+   symmetric. (A synthetic-event test does not reproduce the swallowing either way, because the
+   tracking loop pulls from the real event queue -- hence belt and braces rather than a claim.)
+
+   -rightMouseDown: does call super, because NSView's default implementation is what pops up the
+   CONTEXTMENU (the canvas carries the same comment). */
+#define IUP_COCOA_LABEL_MOUSE_METHODS \
+- (BOOL) acceptsFirstMouse:(NSEvent*)the_event { (void)the_event; return YES; } \
+- (void) mouseDown:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseButton(self, [self ih], the_event, true); \
+} \
+- (void) mouseUp:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseButton(self, [self ih], the_event, false); \
+} \
+- (void) rightMouseDown:(NSEvent*)the_event \
+{ \
+	if([self isEnabled]) { cocoaLabelHandleMouseButton(self, [self ih], the_event, true); } \
+	[super rightMouseDown:the_event]; \
+} \
+- (void) rightMouseUp:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { [super rightMouseUp:the_event]; return; } \
+	cocoaLabelHandleMouseButton(self, [self ih], the_event, false); \
+} \
+- (void) otherMouseDown:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseButton(self, [self ih], the_event, true); \
+} \
+- (void) otherMouseUp:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseButton(self, [self ih], the_event, false); \
+} \
+- (void) mouseDragged:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseMotion(self, [self ih], the_event); \
+} \
+- (void) rightMouseDragged:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseMotion(self, [self ih], the_event); \
+} \
+- (void) otherMouseDragged:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseMotion(self, [self ih], the_event); \
+} \
+- (void) mouseMoved:(NSEvent*)the_event \
+{ \
+	if(![self isEnabled]) { return; } \
+	cocoaLabelHandleMouseMotion(self, [self ih], the_event); \
+} \
+- (void) mouseEntered:(NSEvent*)the_event \
+{ \
+	(void)the_event; \
+	if(![self isEnabled]) { return; } \
+	if([self ih]) { iupCocoaCommonBaseHandleMouseEnterWindowCallback([self ih]); } \
+} \
+- (void) mouseExited:(NSEvent*)the_event \
+{ \
+	/* Deliberately not gated on isEnabled: an app that deactivates the label from inside its own \
+	   ENTERWINDOW_CB (the label test does exactly that) would otherwise never see the leave and \
+	   would be stuck believing the pointer is still inside. */ \
+	(void)the_event; \
+	if([self ih]) { iupCocoaCommonBaseHandleMouseLeaveWindowCallback([self ih]); } \
+} \
+- (void) updateTrackingAreas \
+{ \
+	[super updateTrackingAreas]; \
+	_iupTrackingArea = cocoaLabelReplaceTrackingArea(self, _iupTrackingArea); \
+} \
+- (void) dealloc \
+{ \
+	if(nil != _iupTrackingArea) \
+	{ \
+		[self removeTrackingArea:_iupTrackingArea]; \
+		[_iupTrackingArea release]; \
+		_iupTrackingArea = nil; \
+	} \
+	[super dealloc]; \
+}
+
+@interface IupCocoaLabelTextField : NSTextField
+{
+	NSTrackingArea* _iupTrackingArea;
+}
+@property(nonatomic, assign) Ihandle* ih;
+@end
+
+@implementation IupCocoaLabelTextField
+@synthesize ih = _ih;
+IUP_COCOA_LABEL_MOUSE_METHODS
+@end
+
+@interface IupCocoaLabelImageView : NSImageView
+{
+	NSTrackingArea* _iupTrackingArea;
+}
+@property(nonatomic, assign) Ihandle* ih;
+@end
+
+@implementation IupCocoaLabelImageView
+@synthesize ih = _ih;
+IUP_COCOA_LABEL_MOUSE_METHODS
+@end
+
+
 static NSView* cocoaLabelGetRootView(Ihandle* ih)
 {
 	NSView* root_container_view = (NSView*)ih->handle;
@@ -736,14 +906,14 @@ static int cocoaLabelMapMethod(Ihandle* ih)
 			   arrives from iupdrvBaseLayoutUpdateMethod once IUP computes the layout. */
 			iupdrvImageGetInfo(iupImageGetImage(value, ih, 0, NULL), &width, &height, &bpp);
 
-			NSImageView* image_view = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
+			NSImageView* image_view = [[IupCocoaLabelImageView alloc] initWithFrame:NSMakeRect(0, 0, width, height)];
 			the_label = image_view;
 		}
 		else
 		{
 			ih->data->type = IUP_LABEL_TEXT;
 
-			the_label = [[NSTextField alloc] initWithFrame:NSZeroRect];
+			the_label = [[IupCocoaLabelTextField alloc] initWithFrame:NSZeroRect];
 //			the_label = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 100, 100)];
 
 #if 1
@@ -826,6 +996,13 @@ static int cocoaLabelMapMethod(Ihandle* ih)
 	ih->handle = the_label;
 	iupCocoaSetAssociatedViews(ih, the_label, the_label);
 
+	/* Separators are NSBox and have no -setIh:, matching Windows, which does not wire mouse
+	   messages for them either. */
+	if([the_label respondsToSelector:@selector(setIh:)])
+	{
+		[the_label setIh:ih];
+	}
+
 	/* Now that ih->handle is set, cocoaLabelSetNativeImage can find the view. Doing this here
 	   rather than inline above keeps IMINACTIVE handling in exactly one place. */
 	if(IUP_LABEL_IMAGE == ih->data->type)
@@ -866,6 +1043,12 @@ static void cocoaLabelUnMapMethod(Ihandle* ih)
 			IupDestroy(context_menu_ih);
 		}
 		iupCocoaCommonBaseSetContextMenuAttrib(ih, NULL);
+	}
+
+	/* Drop the back-pointer before anything else can deliver a late event to a dead Ihandle. */
+	if([the_label respondsToSelector:@selector(setIh:)])
+	{
+		[the_label setIh:NULL];
 	}
 
 	iupCocoaRemoveFromParent(ih);
