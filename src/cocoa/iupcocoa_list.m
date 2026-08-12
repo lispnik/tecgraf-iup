@@ -101,6 +101,8 @@ IUPCOCOALISTSUBTYPE_SINGLELIST returns NSTableView
 */
 /* Composite view backing an EDITBOX (non-dropdown) list; implemented further down. */
 static NSTextField* cocoaListGetEditBoxTextField(Ihandle* ih);
+/* defined with the phase 3 attributes, used by the table cell view builder above them */
+static NSImage* cocoaListGetItemImage(Ihandle* ih, int pos_zero_based);
 
 @interface IupCocoaListEditBoxView : NSView
 @property(nonatomic, assign) NSTextField* iupTextField;
@@ -294,6 +296,9 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 - (void) comboBoxSelectionDidChange:(NSNotification*)the_notification;
 //- (void)comboBoxSelectionIsChanging:(NSNotification *)notification;
 
+/* NSControlTextEditingDelegate: typing in the editbox has to reach VALUECHANGED_CB, which
+   iup_list.c registers for every platform and which nothing here was raising. */
+- (void) controlTextDidChange:(NSNotification*)the_notification;
 
 @end
 
@@ -306,6 +311,29 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
  }
  */
 
+
+/* Typing in an editbox list raises VALUECHANGED_CB. gtk and win both do this; on Cocoa nothing
+   was listening to the field at all, so an application could not tell that the text had changed.
+   NSComboBox and NSTextField both deliver this through NSControlTextEditingDelegate. */
+- (void) controlTextDidChange:(NSNotification*)the_notification
+{
+	NSControl* the_control = [the_notification object];
+	Ihandle* ih = (Ihandle*)objc_getAssociatedObject(the_control, IHANDLE_ASSOCIATED_OBJ_KEY);
+	Icallback callback_function;
+
+	if(NULL == ih)
+	{
+		return;
+	}
+	callback_function = IupGetCallback(ih, "VALUECHANGED_CB");
+	if(callback_function)
+	{
+		if(callback_function(ih) == IUP_CLOSE)
+		{
+			IupExitLoop();
+		}
+	}
+}
 
 - (void) comboBoxSelectionDidChange:(NSNotification*)the_notification
 {
@@ -435,6 +463,37 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 	// or as a new cell, so set the stringValue of the cell to the
 	// nameArray value at row
 	[the_result setStringValue:string_item];
+
+	{
+		Ihandle* img_ih = (Ihandle*)objc_getAssociatedObject(table_view, IHANDLE_ASSOCIATED_OBJ_KEY);
+		if(NULL != img_ih)
+		{
+			NSImage* item_image = cocoaListGetItemImage(img_ih, (int)the_row);
+			IupCocoaFont* iup_font = iupCocoaGetFont(img_ih);
+			if(nil != [iup_font nativeFont])
+			{
+				[the_result setFont:[iup_font nativeFont]];
+			}
+			if(nil != item_image)
+			{
+				/* An NSTextField cannot show an image directly, but a text attachment in an
+				   attributed string can, which keeps the cell class unchanged. */
+				NSTextAttachment* attachment = [[NSTextAttachment alloc] init];
+				NSTextAttachmentCell* attachment_cell = [[NSTextAttachmentCell alloc] initImageCell:item_image];
+				NSMutableAttributedString* composed;
+
+				[attachment setAttachmentCell:attachment_cell];
+				composed = [[NSMutableAttributedString alloc] init];
+				[composed appendAttributedString:[NSAttributedString attributedStringWithAttachment:attachment]];
+				[composed appendAttributedString:[[[NSAttributedString alloc] initWithString:
+					[@" " stringByAppendingString:string_item]] autorelease]];
+				[the_result setAttributedStringValue:composed];
+				[composed release];
+				[attachment_cell release];
+				[attachment release];
+			}
+		}
+	}
 
 	/* A view-based NSTableView draws its rows with these cell views, so FGCOLOR has to be applied
 	   here rather than on the table; cocoaListSetFgColorAttrib stores the value and reloads. */
@@ -1029,6 +1088,207 @@ static int cocoaListSetScrollToAttrib(Ihandle* ih, const char* value)
 static int cocoaListSetScrollToPosAttrib(Ihandle* ih, const char* value)
 {
 	return cocoaListSetCaretPosAttrib(ih, value);
+}
+
+
+/* ---- Phase 3: spacing/padding, NC, FONT and per-item images ------------------------------- */
+
+/* Enforces NC (maximum character count) on an editable list field. IUP's own mask machinery
+   lives above the driver, so this only has to bound the length. */
+@interface IupCocoaListLengthFormatter : NSFormatter
+@property(nonatomic, assign) NSUInteger maxLength;
+@end
+
+@implementation IupCocoaListLengthFormatter
+- (NSString*) stringForObjectValue:(id)an_object
+{
+	return [an_object isKindOfClass:[NSString class]] ? (NSString*)an_object : [an_object description];
+}
+- (BOOL) getObjectValue:(out id*)an_object forString:(NSString*)a_string errorDescription:(out NSString**)an_error
+{
+	if(an_object) { *an_object = a_string; }
+	return YES;
+}
+- (BOOL) isPartialStringValid:(NSString**)partial_string
+		proposedSelectedRange:(NSRangePointer)proposed_range
+			   originalString:(NSString*)original_string
+		originalSelectedRange:(NSRange)original_range
+			 errorDescription:(NSString**)error
+{
+	if((0 == _maxLength) || ([*partial_string length] <= _maxLength))
+	{
+		return YES;
+	}
+	return NO;   /* reject the edit, keeping the original string */
+}
+@end
+
+static int cocoaListSetNCAttrib(Ihandle* ih, const char* value)
+{
+	NSTextField* the_field;
+
+	if(!iupStrToInt(value, &ih->data->nc))
+	{
+		ih->data->nc = 0;
+	}
+	the_field = cocoaListGetEditableField(ih);
+	if(nil == the_field)
+	{
+		return 1;   /* store until mapped */
+	}
+
+	if(ih->data->nc > 0)
+	{
+		IupCocoaListLengthFormatter* formatter = [[IupCocoaListLengthFormatter alloc] init];
+		[formatter setMaxLength:(NSUInteger)ih->data->nc];
+		[the_field setFormatter:formatter];
+		[formatter release];
+	}
+	else
+	{
+		[the_field setFormatter:nil];
+	}
+	return 1;
+}
+
+static int cocoaListSetSpacingAttrib(Ihandle* ih, const char* value)
+{
+	NSTableView* table_view;
+
+	if(ih->data->is_dropdown)
+	{
+		return 0;
+	}
+	if(!iupStrToInt(value, &ih->data->spacing))
+	{
+		ih->data->spacing = 0;
+	}
+	table_view = cocoaListGetTableView(ih);
+	if(nil == table_view)
+	{
+		return 1;   /* store until mapped, then applied again */
+	}
+	/* gtk pads the cell renderer; the NSTableView equivalent is the intercell spacing plus a
+	   matching row height, otherwise the extra padding is clipped. */
+	[table_view setIntercellSpacing:NSMakeSize((CGFloat)ih->data->spacing, (CGFloat)ih->data->spacing)];
+	{
+		CGFloat base_height = [[NSFont systemFontOfSize:0.0] pointSize] + 6.0;
+		[table_view setRowHeight:base_height + (CGFloat)(2 * ih->data->spacing)];
+	}
+	[table_view reloadData];
+	return 0;
+}
+
+static int cocoaListSetPaddingAttrib(Ihandle* ih, const char* value)
+{
+	iupStrToIntInt(value, &ih->data->horiz_padding, &ih->data->vert_padding, 'x');
+	if(ih->handle)
+	{
+		IupRefresh(ih);
+	}
+	/* Return 1: iupAttribUpdate() drops any attribute whose setter returns 0, which would
+	   discard padding set before map. */
+	return 1;
+}
+
+static int cocoaListSetFontAttrib(Ihandle* ih, const char* value)
+{
+	NSFont* the_font;
+	NSTextField* the_field;
+	NSTableView* table_view;
+
+	/* let the common code parse and cache the font first */
+	if(!iupdrvSetFontAttrib(ih, value))
+	{
+		return 0;
+	}
+	the_font = [iupCocoaGetFont(ih) nativeFont];
+	if(nil == the_font)
+	{
+		return 1;
+	}
+
+	the_field = cocoaListGetEditableField(ih);
+	if(nil != the_field)
+	{
+		[the_field setFont:the_font];
+	}
+	table_view = cocoaListGetTableView(ih);
+	if(nil != table_view)
+	{
+		/* rows are rebuilt from -tableView:viewForTableColumn:row:, which reads the font back */
+		[table_view reloadData];
+	}
+	{
+		id base = cocoaListGetBaseWidget(ih);
+		if([base isKindOfClass:[NSPopUpButton class]])
+		{
+			[(NSPopUpButton*)base setFont:the_font];
+		}
+	}
+	return 1;
+}
+
+/* Per-item images. The table's cell views are NSTextFields, so the image rides along as an
+   NSTextAttachment in an attributed string rather than needing a different cell class; a
+   dropdown just puts it on the NSMenuItem. */
+static NSString* cocoaListImageAttribName(int id)
+{
+	return [NSString stringWithFormat:@"_IUPCOCOA_LISTIMAGE%d", id];
+}
+
+static NSImage* cocoaListGetItemImage(Ihandle* ih, int pos_zero_based)
+{
+	const char* name = iupAttribGet(ih, [cocoaListImageAttribName(pos_zero_based + 1) UTF8String]);
+	if(!name)
+	{
+		return nil;
+	}
+	return (NSImage*)iupImageGetImage(name, ih, 0, NULL);
+}
+
+static int cocoaListSetImageAttribId(Ihandle* ih, int id, const char* value)
+{
+	int pos;
+
+	if(!ih->data->show_image)
+	{
+		return 0;
+	}
+	pos = iupListGetPosAttrib(ih, id);
+	if(pos < 0)
+	{
+		return 0;
+	}
+	iupAttribSetStr(ih, [cocoaListImageAttribName(pos + 1) UTF8String], value);
+
+	{
+		NSView* base_widget = cocoaListGetBaseWidget(ih);
+		if([base_widget isKindOfClass:[NSPopUpButton class]])
+		{
+			NSMenuItem* the_item = [[(NSPopUpButton*)base_widget menu] itemAtIndex:pos];
+			[the_item setImage:value ? (NSImage*)iupImageGetImage(value, ih, 0, NULL) : nil];
+			return 0;
+		}
+	}
+	{
+		NSTableView* table_view = cocoaListGetTableView(ih);
+		if(nil != table_view)
+		{
+			[table_view reloadData];
+		}
+	}
+	return 0;
+}
+
+static char* cocoaListGetImageNativeHandleAttribId(Ihandle* ih, int id)
+{
+	int pos = iupListGetPosAttrib(ih, id);
+	if(pos < 0)
+	{
+		return NULL;
+	}
+	return (char*)cocoaListGetItemImage(ih, pos);
 }
 
 
@@ -2246,6 +2506,8 @@ static int cocoaListMapMethod(Ihandle* ih)
 			[text_field setBezeled:YES];
 			[text_field setFont:[NSFont systemFontOfSize:13.0]];
 			objc_setAssociatedObject(text_field, IHANDLE_ASSOCIATED_OBJ_KEY, (id)ih, OBJC_ASSOCIATION_ASSIGN);
+			/* so typing in the editbox raises VALUECHANGED_CB, as it does on gtk and win */
+			[text_field setDelegate:(id<NSTextFieldDelegate>)list_receiver];
 
 			IupCocoaListEditBoxView* container_view = [[IupCocoaListEditBoxView alloc] initWithFrame:NSZeroRect];
 			[container_view addSubview:text_field];
@@ -2414,7 +2676,9 @@ void iupdrvListInitClass(Iclass* ic)
 
   /* Overwrite Common */
 	
-	iupClassRegisterAttribute(ic, "FONT", NULL, winListSetFontAttrib, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_MAPPED);  /* inherited */
+	#endif
+	iupClassRegisterAttribute(ic, "FONT", NULL, cocoaListSetFontAttrib, IUPAF_SAMEASSYSTEM, "DEFAULTFONT", IUPAF_NOT_MAPPED);  /* inherited */
+#if 0
 	
 	/* Visual */
 #endif
@@ -2447,12 +2711,16 @@ void iupdrvListInitClass(Iclass* ic)
 #if 0
 	/*OLD*/iupClassRegisterAttribute(ic, "VISIBLE_ITEMS", NULL, NULL, IUPAF_SAMEASSYSTEM, "5", IUPAF_DEFAULT);
 	iupClassRegisterAttribute(ic, "DROPEXPAND", NULL, NULL, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NO_INHERIT);
-	iupClassRegisterAttribute(ic, "SPACING", iupListGetSpacingAttrib, winListSetSpacingAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);
+	#endif
+	iupClassRegisterAttribute(ic, "SPACING", iupListGetSpacingAttrib, cocoaListSetSpacingAttrib, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);
+#if 0
 	
 	
 	iupClassRegisterAttribute(ic, "TOPITEM", NULL, cocoaListSetTopItemAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 
+  #endif
   iupClassRegisterAttribute(ic, "PADDING", iupListGetPaddingAttrib, cocoaListSetPaddingAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
+#if 0
   #endif
 	iupClassRegisterAttribute(ic, "SELECTEDTEXT", cocoaListGetSelectedTextAttrib, cocoaListSetSelectedTextAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 #if 0
@@ -2473,14 +2741,19 @@ void iupdrvListInitClass(Iclass* ic)
   #endif
   iupClassRegisterAttribute(ic, "READONLY", cocoaListGetReadOnlyAttrib, cocoaListSetReadOnlyAttrib, NULL, NULL, IUPAF_DEFAULT);
 #if 0
+  #endif
   iupClassRegisterAttribute(ic, "NC", iupListGetNCAttrib, cocoaListSetNCAttrib, NULL, NULL, IUPAF_NOT_MAPPED);
+#if 0
   #endif
   iupClassRegisterAttribute(ic, "CLIPBOARD", NULL, cocoaListSetClipboardAttrib, NULL, NULL, IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "SCROLLTO", NULL, cocoaListSetScrollToAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "SCROLLTOPOS", NULL, cocoaListSetScrollToPosAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
 #if 0
 
-  iupClassRegisterAttributeId(ic, "IMAGE", NULL, cocoaListSetImageAttrib, IUPAF_IHANDLENAME|IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
+  #endif
+  iupClassRegisterAttributeId(ic, "IMAGE", NULL, cocoaListSetImageAttribId, IUPAF_IHANDLENAME|IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
+  iupClassRegisterAttributeId(ic, "IMAGENATIVEHANDLE", cocoaListGetImageNativeHandleAttribId, NULL, IUPAF_NO_STRING|IUPAF_READONLY|IUPAF_NO_INHERIT);
+#if 0
 	iupClassRegisterAttribute(ic, "CUEBANNER", NULL, winListSetCueBannerAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "FILTER", NULL, winListSetFilterAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 }
