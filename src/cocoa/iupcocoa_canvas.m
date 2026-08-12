@@ -1790,6 +1790,14 @@ void iupdrvCanvasInitClass(Iclass* ic)
 #if 0
 	/* IupCanvas only */
 #endif
+	/* Other platforms' native handles plus an X11-era flag. The Cocoa equivalents already exist
+	   as DRAWABLE and CGCONTEXT below, so these are registered known-but-unsupported rather than
+	   being unknown attributes. */
+	iupClassRegisterAttribute(ic, "HWND", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT|IUPAF_NO_STRING);
+	iupClassRegisterAttribute(ic, "XWINDOW", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT|IUPAF_NO_STRING);
+	iupClassRegisterAttribute(ic, "XDISPLAY", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT|IUPAF_NO_STRING);
+	iupClassRegisterAttribute(ic, "BACKINGSTORE", NULL, NULL, "YES", NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+
 	iupClassRegisterAttribute(ic, "DRAWSIZE", cocoaCanvasGetDrawSizeAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
 	
 	iupClassRegisterAttribute(ic, "DX", NULL, cocoaCanvasSetDXAttrib, NULL, NULL, IUPAF_NO_INHERIT);  /* force new default value */

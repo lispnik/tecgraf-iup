@@ -4980,11 +4980,116 @@ static void cocoaTreeUnMapMethod(Ihandle* ih)
 
 
 
+/* ---- tree colours, indentation and row spacing ---------------------------------------------
+   The registrations for these sat in `#if 0` blocks naming functions that do not exist in this
+   backend, so they are added live below rather than by re-enabling that dead code. */
+
+static NSOutlineView* cocoaTreeGetOutlineViewForAttrib(Ihandle* ih)
+{
+	id root_object = (id)ih->handle;
+	if([root_object isKindOfClass:[NSOutlineView class]])
+	{
+		return (NSOutlineView*)root_object;
+	}
+	if([root_object isKindOfClass:[NSScrollView class]])
+	{
+		id document_view = [(NSScrollView*)root_object documentView];
+		if([document_view isKindOfClass:[NSOutlineView class]])
+		{
+			return (NSOutlineView*)document_view;
+		}
+	}
+	return nil;
+}
+
+static int cocoaTreeSetBgColorAttribImpl(Ihandle* ih, const char* value)
+{
+	NSOutlineView* outline_view = cocoaTreeGetOutlineViewForAttrib(ih);
+	unsigned char r;
+	unsigned char g;
+	unsigned char b;
+
+	if((nil == outline_view) || !iupStrToRGB(value, &r, &g, &b))
+	{
+		return 1;
+	}
+	[outline_view setBackgroundColor:[NSColor colorWithCalibratedRed:r/255.0 green:g/255.0 blue:b/255.0 alpha:1.0]];
+	return 1;
+}
+
+/* Row text is drawn by cell views, so store the colour and rebuild the rows. */
+static int cocoaTreeSetFgColorAttribImpl(Ihandle* ih, const char* value)
+{
+	NSOutlineView* outline_view = cocoaTreeGetOutlineViewForAttrib(ih);
+	iupAttribSetStr(ih, "FGCOLOR", value);
+	if(nil != outline_view)
+	{
+		[outline_view reloadData];
+	}
+	return 1;
+}
+
+static int cocoaTreeSetIndentationAttribImpl(Ihandle* ih, const char* value)
+{
+	NSOutlineView* outline_view = cocoaTreeGetOutlineViewForAttrib(ih);
+	int indentation;
+
+	if((nil == outline_view) || !iupStrToInt(value, &indentation))
+	{
+		return 1;
+	}
+	[outline_view setIndentationPerLevel:(CGFloat)indentation];
+	return 1;
+}
+
+static char* cocoaTreeGetIndentationAttribImpl(Ihandle* ih)
+{
+	NSOutlineView* outline_view = cocoaTreeGetOutlineViewForAttrib(ih);
+	if(nil == outline_view)
+	{
+		return NULL;
+	}
+	return iupStrReturnInt(iupROUND([outline_view indentationPerLevel]));
+}
+
+static int cocoaTreeSetSpacingAttribImpl(Ihandle* ih, const char* value)
+{
+	NSOutlineView* outline_view = cocoaTreeGetOutlineViewForAttrib(ih);
+	int spacing = 0;
+
+	if(!iupStrToInt(value, &spacing))
+	{
+		spacing = 0;
+	}
+	iupAttribSetInt(ih, "_IUPCOCOA_TREESPACING", spacing);
+	if(nil == outline_view)
+	{
+		return 1;   /* store until mapped */
+	}
+	{
+		CGFloat base_height = [[NSFont systemFontOfSize:0.0] pointSize] + 6.0;
+		[outline_view setRowHeight:base_height + (CGFloat)(2 * spacing)];
+	}
+	return 1;
+}
+
+static char* cocoaTreeGetSpacingAttribImpl(Ihandle* ih)
+{
+	return iupStrReturnInt(iupAttribGetInt(ih, "_IUPCOCOA_TREESPACING"));
+}
+
+
 void iupdrvTreeInitClass(Iclass* ic)
 {
 	/* Driver Dependent Class functions */
 	ic->Map = cocoaTreeMapMethod;
 	ic->UnMap = cocoaTreeUnMapMethod;
+
+	/* Visual -- see the helpers above; the `#if 0` copies below name gtk/win functions. */
+	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, cocoaTreeSetBgColorAttribImpl, IUPAF_SAMEASSYSTEM, "TXTBGCOLOR", IUPAF_DEFAULT);
+	iupClassRegisterAttribute(ic, "FGCOLOR", NULL, cocoaTreeSetFgColorAttribImpl, IUPAF_SAMEASSYSTEM, "TXTFGCOLOR", IUPAF_DEFAULT);
+	iupClassRegisterAttribute(ic, "INDENTATION", cocoaTreeGetIndentationAttribImpl, cocoaTreeSetIndentationAttribImpl, NULL, NULL, IUPAF_DEFAULT);
+	iupClassRegisterAttribute(ic, "SPACING", cocoaTreeGetSpacingAttribImpl, cocoaTreeSetSpacingAttribImpl, IUPAF_SAMEASSYSTEM, "0", IUPAF_NOT_MAPPED);
 #if 0
 	
 	/* Visual */

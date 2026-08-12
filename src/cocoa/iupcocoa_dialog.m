@@ -1071,6 +1071,65 @@ static int cocoaDialogSetMaxSizeAttrib(Ihandle* ih, const char* value)
 
 
 
+/* ---- Dialog attributes that have a real macOS equivalent ---------------------------------- */
+
+static int cocoaDialogSetOpacityAttrib(Ihandle* ih, const char* value)
+{
+	NSWindow* the_window = cocoaDialogGetWindow(ih);
+	int opacity;
+
+	if((nil == the_window) || !iupStrToInt(value, &opacity))
+	{
+		return 0;
+	}
+	if(opacity < 0)   { opacity = 0; }
+	if(opacity > 255) { opacity = 255; }
+	[the_window setAlphaValue:(CGFloat)opacity / 255.0];
+	return 1;
+}
+
+static int cocoaDialogSetTopMostAttrib(Ihandle* ih, const char* value)
+{
+	NSWindow* the_window = cocoaDialogGetWindow(ih);
+	if(nil == the_window)
+	{
+		return 0;
+	}
+	/* NSFloatingWindowLevel is the documented "stays above normal windows" level. */
+	[the_window setLevel:iupStrBoolean(value) ? NSFloatingWindowLevel : NSNormalWindowLevel];
+	return 1;
+}
+
+static char* cocoaDialogGetActiveWindowAttrib(Ihandle* ih)
+{
+	NSWindow* the_window = cocoaDialogGetWindow(ih);
+	return iupStrReturnBoolean((nil != the_window) && [the_window isKeyWindow]);
+}
+
+/* CLIENTSIZE is the content area, i.e. the window minus its title bar and borders. */
+static char* cocoaDialogGetClientSizeAttrib(Ihandle* ih)
+{
+	NSWindow* the_window = cocoaDialogGetWindow(ih);
+	NSRect content_rect;
+
+	if(nil == the_window)
+	{
+		return NULL;
+	}
+	content_rect = [[the_window contentView] frame];
+	return iupStrReturnIntInt(iupROUND(content_rect.size.width),
+		iupROUND(content_rect.size.height), 'x');
+}
+
+/* The offset of the client area inside the window. macOS positions the content view at the
+   origin of the content rect, so there is no additional inset to report. */
+static char* cocoaDialogGetClientOffsetAttrib(Ihandle* ih)
+{
+	(void)ih;
+	return iupStrReturnIntInt(0, 0, 'x');
+}
+
+
 static int cocoaDialogSetTitleAttrib(Ihandle* ih, const char* value)
 {
 	id root_object = (id)ih->handle;
@@ -1651,8 +1710,24 @@ void iupdrvDialogInitClass(Iclass* ic)
 	iupClassRegisterAttribute(ic, "FULLSCREEN", NULL, cocoaDialogSetFullScreenAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "MINSIZE", NULL, cocoaDialogSetMinSizeAttrib, IUPAF_SAMEASSYSTEM, "1x1", IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "MAXSIZE", NULL, cocoaDialogSetMaxSizeAttrib, IUPAF_SAMEASSYSTEM, "65535x65535", IUPAF_NO_INHERIT);
+	/* Implemented: these have direct AppKit equivalents. */
+	iupClassRegisterAttribute(ic, "OPACITY", NULL, cocoaDialogSetOpacityAttrib, NULL, NULL, IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "TOPMOST", NULL, cocoaDialogSetTopMostAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "ACTIVEWINDOW", cocoaDialogGetActiveWindowAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "CLIENTSIZE", cocoaDialogGetClientSizeAttrib, iupDialogSetClientSizeAttrib, NULL, NULL, IUPAF_NO_SAVE|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "CLIENTOFFSET", cocoaDialogGetClientOffsetAttrib, NULL, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_READONLY|IUPAF_NO_INHERIT);
+
+	/* Not supported, registered so they are known attributes rather than unknown ones:
+	   SAVEUNDER and DIALOGHINT are X11 concepts; OPACITYIMAGE is a Win32 layered window; ICON is
+	   per-window on Windows and X11 but not on macOS, where the icon belongs to the application
+	   bundle; HWND and XWINDOW are other platforms' native handles. */
+	iupClassRegisterAttribute(ic, "SAVEUNDER", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "DIALOGHINT", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "OPACITYIMAGE", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "ICON", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "HWND", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT|IUPAF_NO_STRING);
+	iupClassRegisterAttribute(ic, "XWINDOW", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT|IUPAF_NO_STRING);
 #if 0
-	iupClassRegisterAttribute(ic, "SAVEUNDER", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);  /* saveunder not supported in GTK */
 	
 	/* IupDialog Windows and GTK Only */
 	iupClassRegisterAttribute(ic, "ACTIVEWINDOW", gtkDialogGetActiveWindowAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_INHERIT);

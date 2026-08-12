@@ -747,12 +747,31 @@ static void cocoaTabsComputeNaturalSize(Ihandle* ih, int *w, int *h, int *childr
 }
 
 
+static int cocoaTabsSetBgColorAttribImpl(Ihandle* ih, const char* value)
+{
+	(void)ih;
+	(void)value;
+	/* An NSTabView paints its own themed background, so there is nothing to apply; win and gtk3
+	   effectively ignore BGCOLOR here too. Registered so the value is stored and readable. */
+	return 1;
+}
+
 void iupdrvTabsInitClass(Iclass* ic)
 {
 
   /* Driver Dependent Class functions */
 	ic->Map = cocoaTabsMapMethod;
 	ic->UnMap = cocoaTabsUnMapMethod;
+
+  /* Registered live; the `#if 0` copies further down name gtk functions absent from this backend.
+     An NSTabView draws its own themed background and has no rotated tab labels, and a tab cannot
+     be hidden without removing its page -- so those are known-but-unsupported rather than
+     silently doing the wrong thing. */
+  iupClassRegisterAttribute(ic, "BGCOLOR", iupBaseNativeParentGetBgColorAttrib, cocoaTabsSetBgColorAttribImpl, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_DEFAULT);
+  iupClassRegisterAttribute(ic, "FGCOLOR", NULL, NULL, IUPAF_SAMEASSYSTEM, "DLGFGCOLOR", IUPAF_NOT_SUPPORTED);
+  iupClassRegisterAttribute(ic, "TABORIENTATION", NULL, NULL, IUPAF_SAMEASSYSTEM, "HORIZONTAL", IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+  iupClassRegisterAttributeId(ic, "TABVISIBLE", NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+  iupClassRegisterAttribute(ic, "PADDING", NULL, NULL, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
 	ic->ChildAdded     = cocoaTabsChildAddedMethod;
 	ic->ChildRemoved   = cocoaTabsChildRemovedMethod;
 	//	ic->LayoutUpdate = cocoaTabsLayoutUpdateMethod;
