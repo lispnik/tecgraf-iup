@@ -3058,7 +3058,15 @@ static void iPlotSetClassUpdate(Iclass* ic)
 
 static Iclass* iPlotNewClass(void)
 {
-  Iclass* ic = iupClassNew(iupRegisterFindClass("glcanvas"));
+  /* IupPlot derives from IupGLCanvas so it can offer an OpenGL graphics mode. On a platform
+     without IupGLCanvas -- Cocoa has no implementation at all, srcgl/ covers only win, x and
+     haiku -- iupRegisterFindClass("glcanvas") returns NULL, which would leave IupPlot with no
+     parent class and therefore none of the canvas behaviour it relies on. Fall back to the plain
+     canvas, which is what IUP_PLOT_NATIVE mode uses anyway. */
+  Iclass* parent_class = iupRegisterFindClass("glcanvas");
+  if (!parent_class)
+    parent_class = iupRegisterFindClass("canvas");
+  Iclass* ic = iupClassNew(parent_class);
 
   ic->name = (char*)"plot";
   ic->format = NULL;  /* none */
