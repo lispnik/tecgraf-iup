@@ -1525,15 +1525,19 @@ static IupCocoaCanvasView* cocoaCanvasGetCanvasView(Ihandle* ih)
 static char* cocoaCanvasGetCGContextAttrib(Ihandle* ih)
 {
 	IupCocoaCanvasView* canvas_view = cocoaCanvasGetCanvasView(ih);
-	CGContextRef cg_context = NULL;
-//	[canvas_view lockFocus];
-	// Interesting: graphicsPort is deprecated in 10.10
-	// cg_context = (CGContextRef)[[NSGraphicsContext currentContext] graphicsPort];
-	// Use [[NSGraphicsContext currentContext] CGContext] in 10.10+
-	cg_context = [[NSGraphicsContext currentContext] CGContext];
-//	[canvas_view unlockFocus];
-	
-	return (char*)cg_context;
+
+	/* This used to answer [[NSGraphicsContext currentContext] CGContext], which only exists
+	   inside a draw cycle. CD asks for CGCONTEXT/DRAWABLE whenever it wants to draw, and
+	   plenty of drawing happens outside drawRect: IupPlot's REDRAW attribute renders straight
+	   away rather than posting an invalidation, so every toggle, dial and zoom in the plot
+	   sample drew into a NULL context and vanished -- the change only appeared once something
+	   else, such as a window resize, forced a real repaint.
+
+	   Return the view's persistent backing store instead. It is valid at any time, it is the
+	   same surface iupdrvDrawCreateCanvas draws into, and its accessor marks the view dirty
+	   when it is handed out outside a draw cycle, so an immediate render also reaches the
+	   screen on the next display pass. */
+	return (char*)[canvas_view CGContext];
 }
 
 static char* cocoaCanvasGetDrawableAttrib(Ihandle* ih)
