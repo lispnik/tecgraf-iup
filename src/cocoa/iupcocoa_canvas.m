@@ -243,7 +243,14 @@
 		IFnff gl_action = (IFnff)IupGetCallback(ih, "ACTION");
 		if(gl_action)
 		{
+			/* _insideDrawRect must be set even though this path keeps no backing store. The
+			   accessor that hands out the CGContext marks the view dirty whenever it is asked
+			   outside a draw cycle, so an ACTION that uses the IupDraw API -- entirely legal on
+			   a GL canvas, and what a control deriving from one does when it is not rendering
+			   with OpenGL -- would request a redraw from inside its own redraw and spin. */
+			_insideDrawRect = true;
 			gl_action(ih, ih->data->posx, ih->data->posy);
+			_insideDrawRect = false;
 		}
 		return;
 	}

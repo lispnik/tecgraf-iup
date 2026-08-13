@@ -271,13 +271,21 @@ static int cocoaGLCanvasMapMethod(Ihandle* ih)
 		return IUP_NOERROR;
 	}
 
-	/* Tell the IupCanvas view to stop maintaining its CPU backing store for this control: a GL
-	   canvas is drawn by the window server from the GL surface, so the backing store would be
-	   both wasted work every frame and a background fill competing with it. */
-	iupAttribSet(ih, "_IUPCOCOA_GLCANVAS", "1");
-
-	cocoaGLCanvasAttachView(ih, gldata);
-
+	/* Deliberately NOT attaching the context to the view here.
+	
+	   On GLX and WGL a GL canvas is still an ordinary canvas: creating one takes nothing away,
+	   and the GL context only matters once the application calls IupGLMakeCurrent. Attaching
+	   an NSOpenGLContext, by contrast, makes the window server composite that surface over the
+	   view and hides everything drawn into it by CoreGraphics.
+	
+	   That is not hypothetical. IupPlot derives from IupGLCanvas so it can offer an OpenGL
+	   graphics mode, but its default mode is IUP_PLOT_NATIVE, which draws with CD. Once this
+	   driver existed, every IupPlot became a GL canvas and attaching at map time blanked all of
+	   them -- empty plots, and uninitialised GL surfaces showing through as flat colour.
+	
+	   So the takeover waits for the first IupGLMakeCurrent, which is what an application that
+	   genuinely renders with OpenGL does before drawing. Until then the canvas behaves exactly
+	   as it did before, CPU drawing included. */
 	return IUP_NOERROR;
 }
 
@@ -381,8 +389,9 @@ void IupGLMakeCurrent(Ihandle* ih)
 		return;
 	}
 
-	/* If the view had no window when the canvas was mapped, this is the first chance to
-	   attach the surface. */
+	/* First real use of the context: attach it to the view now (see the note in the Map
+	   method about why this does not happen at map time), and tell the IupCanvas view to stop
+	   maintaining its CPU backing store, which the GL surface would cover anyway. */
 	if(!gldata->is_attached)
 	{
 		cocoaGLCanvasAttachView(ih, gldata);
@@ -391,6 +400,8 @@ void IupGLMakeCurrent(Ihandle* ih)
 			iupAttribSet(ih, "ERROR", "Failed to set new current context.");
 			return;
 		}
+
+		iupAttribSet(ih, "_IUPCOCOA_GLCANVAS", "1");
 	}
 
 	[gldata->context makeCurrentContext];

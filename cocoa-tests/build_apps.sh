@@ -89,6 +89,8 @@ companion() {
     flatlist)           echo list ;;
     flatsample)         echo sample ;;
     flattree)           echo tree ;;
+    canvas_scrollbar2)  echo canvas_scrollbar ;;
+    canvas_scrollbar3)  echo canvas_scrollbar ;;
     dial)               echo dial_led ;;
     webbrowser_editor)  echo rt_editor_images ;;
     *)                  echo "" ;;
@@ -119,11 +121,21 @@ PLIST
     glcanvas|glcanvas_cube) CFLAGS_EXTRA="-DUSE_OPENGL" ;;
     *)                   CFLAGS_EXTRA="" ;;
   esac
+  # A few samples call a function defined in a sibling file without declaring it. Whether the
+  # sibling is needed differs between the two sample directories -- html/examples/C's
+  # canvas_scrollbar2 defines CanvasScrollbarTest itself and duplicates the symbol if the
+  # sibling is linked, while html/examples/tests' version does not define it and fails to link
+  # without. Rather than hardcode which is which, build without the sibling and only add it if
+  # the link fails on an undefined symbol.
   comp=$(companion "$name"); extra=""
-  if [ -n "$comp" ] && [ -e "$SRCDIR/$comp.c" ]; then
+  if [ -n "$comp" ] && [ -e "$SRCDIR/$comp.c" ] \
+     && ! clang $CFLAGS $CFLAGS_EXTRA -o "$app/Contents/MacOS/$name" "$src" $LDFLAGS \
+              > "$LOG/$name.probe.log" 2>&1 \
+     && grep -q 'Undefined symbols' "$LOG/$name.probe.log"; then
     clang -c -DBIG_TEST $CFLAGS "$SRCDIR/$comp.c" -o "$LOG/$comp.big.o" >> "$LOG/$name.log" 2>&1
     extra="$LOG/$comp.big.o"
   fi
+  rm -f "$LOG/$name.probe.log"
   # Some files in these directories are not programs: dial_led.c and rt_editor_images.c are
   # include-fragments (a LED description and an image resource table), and bigtest.c is a
   # driver that needs every sibling compiled with -DBIG_TEST. Building every .c in the

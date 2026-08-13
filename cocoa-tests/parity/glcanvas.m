@@ -12,16 +12,34 @@
 #include <stdio.h>
 #include <iup.h>
 #include <iupgl.h>
+#include <iupdraw.h>
 #include "iup_object.h"
 
 static int g_gaps = 0;
-static Ihandle *dlg, *gl_canvas, *shared_canvas;
+static Ihandle *dlg, *gl_canvas, *shared_canvas, *cpu_canvas;
 
 #define CANVAS_W 200
 #define CANVAS_H 120
 
 static void chk(int c, const char* w, const char* g)
-{ printf("%-4s %-52s %s\n", c ? "ok  " : "GAP ", w, g ? g : ""); if (!c) g_gaps++; }
+{ printf("%-4s %-52s %s\n", c ? "ok  " : "GAP ", w, g ? g : ""); fflush(stdout); if (!c) g_gaps++; }
+
+static int g_cpu_draws = 0;
+
+/* Plain IupDraw painting, with no GL call anywhere -- what IupPlot does in native mode. */
+static int cpu_draw_cb(Ihandle* ih)
+{
+  g_cpu_draws++;
+  IupDrawBegin(ih);
+  IupSetAttribute(ih, "DRAWCOLOR", "0 200 0");
+  IupSetAttribute(ih, "DRAWSTYLE", "FILL");
+  IupDrawRectangle(ih, 0, 0, 199, 119);
+  IupDrawEnd(ih);
+  return IUP_DEFAULT;
+}
+
+static int cpu_resize_cb(Ihandle* ih, int w, int h)
+{ (void)ih; (void)w; (void)h; return IUP_DEFAULT; }   /* no GL, as IupPlot's does none */
 
 static void read_pixel(int x, int y, unsigned char* rgb)
 {
@@ -113,6 +131,28 @@ static int run(Ihandle* t)
     chk(gl_canvas->naturalwidth == CANVAS_W && gl_canvas->naturalheight == CANVAS_H,
         "it still sizes like an IupCanvas", buf); }
 
+  /* A GL canvas that never calls IupGLMakeCurrent must still draw like an ordinary canvas.
+     IupPlot is exactly this case: it derives from IupGLCanvas so it can offer an OpenGL
+     graphics mode, but its default IUP_PLOT_NATIVE mode draws with CD. Attaching the
+     NSOpenGLContext at map time made the window server composite that surface over the view
+     and hid every plot on the platform, so the attachment now waits for the first
+     IupGLMakeCurrent. This is that regression, pinned. */
+  { /* Assert the mechanism rather than sampling pixels: capturing this view re-enters the
+       draw cycle (the canvas marks itself dirty from inside IupDrawBegin when drawn outside
+       one) and spins. What matters is that its ACTION ran at all, and that the driver has NOT
+       claimed the view -- _IUPCOCOA_GLCANVAS is the flag that makes IupCocoaCanvasView skip
+       its CPU backing store, and it must stay unset until the application actually uses GL. */
+    char* claimed = IupGetAttribute(cpu_canvas, "_IUPCOCOA_GLCANVAS");
+    snprintf(buf, sizeof buf, "ACTION ran %d time(s), _IUPCOCOA_GLCANVAS=%s",
+             g_cpu_draws, claimed ? claimed : "unset");
+    chk(g_cpu_draws > 0 && claimed == NULL,
+        "a GL canvas that never uses GL still draws normally", buf); }
+
+  { /* ...and the canvas that does use GL is claimed, so the two paths are really distinct. */
+    char* claimed = IupGetAttribute(gl_canvas, "_IUPCOCOA_GLCANVAS");
+    snprintf(buf, sizeof buf, "_IUPCOCOA_GLCANVAS=%s", claimed ? claimed : "unset");
+    chk(claimed != NULL, "IupGLMakeCurrent is what claims the view for GL", buf); }
+
   printf("%d gap(s)\n", g_gaps);
   IupExitLoop();
   return IUP_DEFAULT;
@@ -133,7 +173,16 @@ int main(int argc, char** argv)
   IupSetStrf(shared_canvas, "RASTERSIZE", "%dx%d", CANVAS_W, CANVAS_H);
   IupSetAttributeHandle(shared_canvas, "SHAREDCONTEXT", gl_canvas);
 
-  dlg = IupDialog(IupVbox(gl_canvas, shared_canvas, NULL));
+  cpu_canvas = IupGLCanvas(NULL);
+  IupSetStrf(cpu_canvas, "RASTERSIZE", "%dx%d", CANVAS_W, CANVAS_H);
+  IupSetCallback(cpu_canvas, "ACTION", (Icallback)cpu_draw_cb);
+  /* IupGLCanvas installs a default RESIZE_CB that calls IupGLMakeCurrent, so any canvas using
+     it is claimed for GL as soon as it is laid out. A control that derives from IupGLCanvas
+     but renders without OpenGL replaces that callback -- IupPlot does exactly this
+     (iup_plot_ctrl.cpp sets iPlotResize_CB) -- and that is the case being pinned here. */
+  IupSetCallback(cpu_canvas, "RESIZE_CB", (Icallback)cpu_resize_cb);
+
+  dlg = IupDialog(IupVbox(gl_canvas, shared_canvas, cpu_canvas, NULL));
   IupSetAttribute(dlg, "TITLE", "glcanvas");
   IupShowXY(dlg, IUP_CENTER, IUP_CENTER);
 
