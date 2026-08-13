@@ -124,6 +124,8 @@ static NSOutlineView* cocoaTreeGetOutlineView(Ihandle* ih)
 	BOOL isDeleted;
 	NSImage* bitmapImage;
 	NSImage* collapsedImage;
+	NSColor* titleColor;   /* per-node COLOR, nil means the control default */
+	NSFont* titleFont;     /* per-node TITLEFONT, nil means the control default */
 	NSTableCellView* tableCellView; // kind of a hack to force layout in heightOf
 	
 	IupCocoaTreeToggleReceiver* toggleReceiver; // For TOGGLE_CB callbacks. cloning is tricky because of (maybe) different ih, so be careful.
@@ -137,6 +139,8 @@ static NSOutlineView* cocoaTreeGetOutlineView(Ihandle* ih)
 @property(nonatomic, assign) BOOL isDeleted;
 @property(nonatomic, retain) NSImage* bitmapImage;
 @property(nonatomic, retain) NSImage* collapsedImage;
+@property(nonatomic, retain) NSColor* titleColor;
+@property(nonatomic, retain) NSFont* titleFont;
 @property(nonatomic, weak) NSTableCellView* tableCellView; // this is kind of a hack to force layout in heightOf. I'm not sure if I want to keep a strong reference because I don't know if there is a possible circular reference here.
 @property(nonatomic, retain) IupCocoaTreeToggleReceiver* toggleReceiver; // optional, depending if toggle is used
 
@@ -160,6 +164,8 @@ static void cocoaTreeReloadItem(IupCocoaTreeItem* tree_item, NSOutlineView* outl
 @synthesize isDeleted = isDeleted;
 @synthesize bitmapImage = bitmapImage; // is the expandedImage for branches
 @synthesize collapsedImage = collapsedImage;
+@synthesize titleColor = titleColor;
+@synthesize titleFont = titleFont;
 @synthesize tableCellView = tableCellView;
 @synthesize toggleReceiver = toggleReceiver;
 
@@ -214,6 +220,8 @@ static void cocoaTreeReloadItem(IupCocoaTreeItem* tree_item, NSOutlineView* outl
 	
 	[bitmapImage release];
 	[collapsedImage release];
+	[titleColor release];
+	[titleFont release];
 
 	[childrenArray release];
 	[title release];
@@ -1028,6 +1036,31 @@ static NSImage* helperGetActiveImageForTreeItem(IupCocoaTreeItem* tree_item, Iup
 	NSImageView* image_view = nil;
 	image_view = [table_cell_view imageView];
 	[text_field setStringValue:string_item];
+
+	/* Per-node COLOR and TITLEFONT. Cells are recycled, so both have to be assigned on every
+	   pass -- leaving them alone when the node has none would inherit whatever the previous
+	   occupant of this cell had. */
+	if(nil != [tree_item titleColor])
+	{
+		[text_field setTextColor:[tree_item titleColor]];
+	}
+	else
+	{
+		[text_field setTextColor:[NSColor controlTextColor]];
+	}
+
+	if(nil != [tree_item titleFont])
+	{
+		[text_field setFont:[tree_item titleFont]];
+	}
+	else
+	{
+		IupCocoaFont* control_font = iupCocoaGetFont(ih);
+		if(nil != control_font)
+		{
+			[text_field setFont:[control_font nativeFont]];
+		}
+	}
 
 	BOOL show_rename = (BOOL)ih->data->show_rename;
 	[text_field setEditable:show_rename];
@@ -3935,6 +3968,119 @@ static char* cocoaTreeGetTitleAttrib(Ihandle* ih, int item_id)
 	}
 }
 
+/* Per-node COLOR and TITLEFONT. GTK registers both (gtkTreeGetColorAttrib /
+   gtkTreeGetTitleFontAttrib); this driver had neither, so a per-node colour or font was
+   silently ignored. They live on the IupCocoaTreeItem and are applied when the cell view is
+   built, because NSOutlineView recycles cells. */
+static char* cocoaTreeGetColorAttrib(Ihandle* ih, int item_id)
+{
+	InodeHandle* inode_handle = iupTreeGetNode(ih, item_id);
+	IupCocoaTreeItem* tree_item;
+	NSColor* rgb_color;
+
+	if(NULL == inode_handle)
+	{
+		return NULL;
+	}
+	tree_item = (IupCocoaTreeItem*)inode_handle;
+	if(nil == [tree_item titleColor])
+	{
+		return NULL;
+	}
+
+	rgb_color = [[tree_item titleColor] colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+	if(nil == rgb_color)
+	{
+		return NULL;
+	}
+
+	return iupStrReturnStrf("%d %d %d",
+		(int)([rgb_color redComponent] * 255.0 + 0.5),
+		(int)([rgb_color greenComponent] * 255.0 + 0.5),
+		(int)([rgb_color blueComponent] * 255.0 + 0.5));
+}
+
+static int cocoaTreeSetColorAttrib(Ihandle* ih, int item_id, const char* value)
+{
+	InodeHandle* inode_handle = iupTreeGetNode(ih, item_id);
+	IupCocoaTreeItem* tree_item;
+	unsigned char r, g, b;
+
+	if(NULL == inode_handle)
+	{
+		return 0;
+	}
+	tree_item = (IupCocoaTreeItem*)inode_handle;
+
+	if(iupStrToRGB(value, &r, &g, &b))
+	{
+		/* Build it in deviceRGB, the same space the getter converts to. Creating it with
+		   -colorWithCalibratedRed: instead makes the round trip lossy -- 255 0 0 comes back
+		   as 255 38 0, because calibrated RGB and device RGB are different spaces. */
+		CGFloat rgba_components[4];
+		rgba_components[0] = (CGFloat)r / 255.0;
+		rgba_components[1] = (CGFloat)g / 255.0;
+		rgba_components[2] = (CGFloat)b / 255.0;
+		rgba_components[3] = 1.0;
+
+		[tree_item setTitleColor:[NSColor colorWithColorSpace:[NSColorSpace deviceRGBColorSpace]
+		                                          components:rgba_components
+		                                               count:4]];
+	}
+	else
+	{
+		[tree_item setTitleColor:nil];
+	}
+
+	cocoaTreeReloadItem(tree_item, cocoaTreeGetOutlineView(ih));
+	return 0;
+}
+
+static char* cocoaTreeGetTitleFontAttrib(Ihandle* ih, int item_id)
+{
+	InodeHandle* inode_handle = iupTreeGetNode(ih, item_id);
+	IupCocoaTreeItem* tree_item;
+
+	if(NULL == inode_handle)
+	{
+		return NULL;
+	}
+	tree_item = (IupCocoaTreeItem*)inode_handle;
+	if(nil == [tree_item titleFont])
+	{
+		return NULL;
+	}
+
+	/* The requested string is kept in the hash table by the setter; report that rather than
+	   trying to reconstruct an IUP font name from the NSFont. */
+	return iupAttribGetId(ih, "TITLEFONT", item_id);
+}
+
+static int cocoaTreeSetTitleFontAttrib(Ihandle* ih, int item_id, const char* value)
+{
+	InodeHandle* inode_handle = iupTreeGetNode(ih, item_id);
+	IupCocoaTreeItem* tree_item;
+
+	if(NULL == inode_handle)
+	{
+		return 1;  /* keep the value; it applies once the node exists */
+	}
+	tree_item = (IupCocoaTreeItem*)inode_handle;
+
+	if(NULL == value)
+	{
+		[tree_item setTitleFont:nil];
+	}
+	else
+	{
+		IupCocoaFont* iup_font = iupCocoaFindFontFromString(value);
+		[tree_item setTitleFont:(nil != iup_font) ? [iup_font nativeFont] : nil];
+	}
+
+	cocoaTreeReloadItem(tree_item, cocoaTreeGetOutlineView(ih));
+	return 1;  /* store it, so the getter can report what was asked for */
+}
+
 static int cocoaTreeSetTitleAttrib(Ihandle* ih, int item_id, const char* value)
 {
 	InodeHandle* inode_handle = iupTreeGetNode(ih, item_id);
@@ -5127,6 +5273,10 @@ void iupdrvTreeInitClass(Iclass* ic)
 #endif
 	
 	iupClassRegisterAttributeId(ic, "TITLE",  cocoaTreeGetTitleAttrib,  cocoaTreeSetTitleAttrib, IUPAF_NO_INHERIT);
+	iupClassRegisterAttributeId(ic, "COLOR",  cocoaTreeGetColorAttrib,  cocoaTreeSetColorAttrib, IUPAF_NO_INHERIT);
+	iupClassRegisterAttributeId(ic, "TITLEFONT", cocoaTreeGetTitleFontAttrib, cocoaTreeSetTitleFontAttrib, IUPAF_NO_INHERIT);
+	/* Read by the shared tree code; NULL/NULL is what GTK registers too. */
+	iupClassRegisterAttribute(ic, "MARKWHENTOGGLE", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
 	
 	iupClassRegisterAttributeId(ic, "TOGGLEVALUE", cocoaTreeGetToggleValueAttrib, cocoaTreeSetToggleValueAttrib, IUPAF_NO_INHERIT);
 	iupClassRegisterAttributeId(ic, "TOGGLEVISIBLE", cocoaTreeGetToggleVisibleAttrib, cocoaTreeSetToggleVisibleAttrib, IUPAF_NO_INHERIT);

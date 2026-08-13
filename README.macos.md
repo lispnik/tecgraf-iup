@@ -98,8 +98,6 @@ the failure mode this backend had.
   `approximate_char_width` report, gives 6.80 → **7**. So `plot.c`'s `SIZE="300x"` opens at
   600px here against roughly 525px elsewhere. Changing the metric would move every control
   sized in character units, so it has been measured but not changed.
-- **IupMatrix title cells still render light in Dark Mode.** Cell values are correct; the
-  title background comes from the shared matrix code's native-parent fallback.
 
 ## Layout of the Cocoa work
 

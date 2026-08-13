@@ -332,6 +332,18 @@ static IupCocoaFont* cocoaFontGet(Ihandle* ih)
 }
 
 // version for external files to use
+/* Resolve an IUP font string ("Helvetica, Bold 12") on its own, with no Ihandle involved.
+   IupTree's per-node TITLEFONT needs this: the font belongs to one node, not to the control.
+   cocoaFindFont caches, so repeated lookups of the same string are cheap. */
+IupCocoaFont* iupCocoaFindFontFromString(const char* iup_font_name)
+{
+	if(NULL == iup_font_name)
+	{
+		return nil;
+	}
+	return cocoaFindFont(iup_font_name);
+}
+
 IupCocoaFont* iupCocoaGetFont(Ihandle* ih)
 {
 	return cocoaFontGet(ih);

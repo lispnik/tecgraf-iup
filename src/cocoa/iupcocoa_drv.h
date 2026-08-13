@@ -132,6 +132,7 @@ IUP_DRV_API void iupcocoaButtonKeySetStatus(NSEvent* ns_event, char* out_status)
 
 
 IUP_DRV_API IupCocoaFont* iupCocoaGetFont(Ihandle* ih);
+IUP_DRV_API IupCocoaFont* iupCocoaFindFontFromString(const char* iup_font_name);
 
 
 int iupCocoaImageCaluclateBytesPerRow(int width, int bytes_per_pixel);

@@ -1107,6 +1107,58 @@ static char* cocoaDialogGetActiveWindowAttrib(Ihandle* ih)
 }
 
 /* CLIENTSIZE is the content area, i.e. the window minus its title bar and borders. */
+/* Without a getter, IupGetAttribute(dialog, "BGCOLOR") returned NULL, and callers that ask
+   the native parent what colour it is got nothing back. iupControlBaseGetParentBgColor is
+   exactly that call, and iupMatrixGetBgRGB feeds its result to iupStrToRGB with r/g/b
+   pre-set to white -- so a NULL answer silently meant WHITE, which the matrix then darkened
+   by 10% and painted its title cells with. In Dark Mode that produced light gray titles
+   carrying white text. IupCells reads the same helper.
+
+   Reporting the window's real background fixes all of them at once. This does not disturb
+   inheritance: iupAttribGetInheritNativeParent reads the hash table directly and never goes
+   through a getter. */
+static char* cocoaDialogGetBgColorAttrib(Ihandle* ih)
+{
+	NSWindow* the_window = cocoaDialogGetWindow(ih);
+	NSColor* background_color;
+	NSColor* rgb_color;
+
+	if(nil == the_window)
+	{
+		return NULL;  /* fall back to DLGBGCOLOR, the registered default */
+	}
+
+	background_color = [the_window backgroundColor];
+	if(nil == background_color)
+	{
+		return NULL;
+	}
+
+	/* A dynamic system colour only resolves correctly against the window's appearance. */
+	rgb_color = nil;
+	if(@available(macOS 10.14, *))
+	{
+		NSAppearance* saved_appearance = [NSAppearance currentAppearance];
+		[NSAppearance setCurrentAppearance:[the_window effectiveAppearance]];
+		rgb_color = [background_color colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+		[NSAppearance setCurrentAppearance:saved_appearance];
+	}
+	else
+	{
+		rgb_color = [background_color colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+	}
+
+	if(nil == rgb_color)
+	{
+		return NULL;
+	}
+
+	return iupStrReturnStrf("%d %d %d",
+		(int)([rgb_color redComponent] * 255.0 + 0.5),
+		(int)([rgb_color greenComponent] * 255.0 + 0.5),
+		(int)([rgb_color blueComponent] * 255.0 + 0.5));
+}
+
 static char* cocoaDialogGetClientSizeAttrib(Ihandle* ih)
 {
 	NSWindow* the_window = cocoaDialogGetWindow(ih);
@@ -1690,7 +1742,7 @@ void iupdrvDialogInitClass(Iclass* ic)
 #endif
 	
 	/* Visual */
-	iupClassRegisterAttribute(ic, "BGCOLOR", NULL, iupdrvBaseSetBgColorAttrib, "DLGBGCOLOR", NULL, IUPAF_DEFAULT);  /* force new default value */
+	/* BGCOLOR is registered below, outside this #if 0 block. */
 	
 	/* Base Container */
 	iupClassRegisterAttribute(ic, "CLIENTSIZE", gtkDialogGetClientSizeAttrib, iupDialogSetClientSizeAttrib, NULL, NULL, IUPAF_NO_SAVE|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);  /* dialog is the only not read-only */
@@ -1698,6 +1750,11 @@ void iupdrvDialogInitClass(Iclass* ic)
 #endif
 	
 	
+	/* Visual. This whole registration sat inside the #if 0 block above, so the dialog had no
+	   BGCOLOR of its own at all -- which is why IupGetAttribute(dialog, "BGCOLOR") answered
+	   NULL and everything asking the native parent for its colour got nothing. */
+	iupClassRegisterAttribute(ic, "BGCOLOR", cocoaDialogGetBgColorAttrib, iupdrvBaseSetBgColorAttrib, "DLGBGCOLOR", NULL, IUPAF_DEFAULT);  /* force new default value */
+
 	/* Special */
 	iupClassRegisterAttribute(ic, "TITLE", NULL, cocoaDialogSetTitleAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
 	
