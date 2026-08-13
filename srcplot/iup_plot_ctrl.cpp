@@ -2948,7 +2948,31 @@ static int iPlotMapMethod(Ihandle* ih)
     ih->data->cd_canvas = cdCreateCanvasf(CD_GL, "10x10 %g", res);
   }
   else if (ih->data->graphics_mode == IUP_PLOT_IMAGERGB)
+  {
     ih->data->cd_canvas = cdCreateCanvas(CD_IUPDBUFFERRGB, ih);
+
+    /* CD's image-RGB driver has no font engine in every build -- the macOS package is one
+       where it has none -- and then cdCanvasGetTextSize answers 0x0 for any string. IupPlot
+       derives every margin, tick label and title position from text metrics, so with all of
+       them zero it has no plotting rectangle left and renders nothing at all: the canvas
+       shows only its background colour. That is what GRAPHICSMODE=IMAGERGB did here, and it
+       is indistinguishable at a glance from the plot being broken.
+    
+       Fall back to the ordinary double buffer, which is what NATIVE mode uses and which does
+       have text metrics. The visible difference between the two modes is negligible; the
+       difference between this and a blank canvas is not. */
+    if (ih->data->cd_canvas)
+    {
+      int text_width = 0, text_height = 0;
+      cdCanvasActivate(ih->data->cd_canvas);
+      cdCanvasGetTextSize(ih->data->cd_canvas, "Wg", &text_width, &text_height);
+      if (text_width == 0 || text_height == 0)
+      {
+        cdKillCanvas(ih->data->cd_canvas);
+        ih->data->cd_canvas = cdCreateCanvas(CD_IUPDBUFFER, ih);
+      }
+    }
+  }
   else if (ih->data->graphics_mode == IUP_PLOT_NATIVEPLUS)
   {
     int old_plus = cdUseContextPlus(1);
