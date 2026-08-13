@@ -78,6 +78,10 @@ the failure mode this backend had.
   `aglUseFont`, which Apple removed and never replaced; the second needs index-colour
   visuals, which macOS OpenGL has never had. IupGLControls draws its own text via FTGL and
   is unaffected.
+- **`IupText` PADDING has no visual effect on a single-line field.** `NSTextField` has no
+  inner-inset API (its cell owns that geometry), so only the natural size grows — which is
+  also all GTK does there, since it sets an outer widget margin rather than an inner one.
+  Multiline gets a real inset via `-setTextContainerInset:`.
 - **CD has no printer driver on macOS**, and no CGM or PS export context. The samples that
   use them link against stubs and simply cannot print or export to those formats.
 - **MathGL and Scintilla** are not built, so `mglplot`, `mathglsamples`, `mgllabel` and

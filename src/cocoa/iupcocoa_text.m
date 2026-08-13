@@ -183,8 +183,15 @@ static IUPStepperObjectController* cocoaTextGetStepperObjectController(Ihandle* 
 
 
 // This is shared between IupCocoaTextField & IupCocoaSecureTextField
-static BOOL IupCocoaTextFieldActionCallbackHelper(Ihandle* ih, NSRange change_range, NSString* replacement_string)
+static BOOL IupCocoaTextFieldActionCallbackHelper(Ihandle* ih, NSTextView* editing_text_view, NSRange change_range, NSString* replacement_string)
 {
+	/* The delegate resolves ih from an associated object, which is not attached yet while the
+	   map method applies format tags -- so this can legitimately be called with no handle. */
+	if((NULL == ih) || (NULL == ih->data))
+	{
+		return YES;
+	}
+
 	if(ih->data->disable_callbacks)
 	{
 		return YES;
@@ -194,7 +201,12 @@ static BOOL IupCocoaTextFieldActionCallbackHelper(Ihandle* ih, NSRange change_ra
 	IFnis action_cb = (IFnis)IupGetCallback(ih, "ACTION");
 	int ret_val;
 	
-	if(NULL != action_cb)
+	/* This used to run only when an ACTION callback was set, so MASK and NC -- which are
+	   enforced by iupEditCallActionCb itself, not by the callback -- did nothing at all
+	   unless the application happened to also install a callback. The mask sample sets only
+	   MASK, which is why it accepted anything. iupEditCallActionCb already returns -1 when
+	   there is neither a callback nor a mask, so calling it unconditionally is safe and is
+	   exactly what the GTK driver does. */
 	{
 		
 		// FIXME: Converting to UTF8String may break the start/end ranges
@@ -212,23 +224,43 @@ static BOOL IupCocoaTextFieldActionCallbackHelper(Ihandle* ih, NSRange change_ra
 		
 		//int iupEditCallActionCb(Ihandle* ih, IFnis cb, const char* insert_value, int start, int end, void *mask, int nc, int remove_dir, int utf8)
 		// FIXME: remove_direction???: 1 backwards, 0 forwards, -1???. I don't know what this means.
-		const char* c_str = [replacement_string UTF8String];
-		
-		// I think iupEditCallActionCb assumes a delete is NULL for the insert_value and "" will break it.
-		if(0 == strlen(c_str))
+		/* replacement_string is nil for a pure deletion, and -UTF8String on nil returns NULL,
+		   so this has to be checked before strlen. It used to sit behind an "is there an ACTION
+		   callback" test that hid the NULL dereference; making the mask path unconditional
+		   exposed it as a crash while IupText applied its format tags during map. */
+		const char* c_str = (nil != replacement_string) ? [replacement_string UTF8String] : NULL;
+
+		// iupEditCallActionCb wants NULL, not "", to mean a deletion.
+		if((NULL != c_str) && (0 == c_str[0]))
 		{
 			c_str = NULL;
 		}
 		
 		ret_val = iupEditCallActionCb(ih, action_cb, c_str, start_pos, end_pos, ih->data->mask, ih->data->nc, 1, YES);
 
-		// FIXME: I don't understand the documentation return value rules.
+		/* The contract (iup_text.c): -1 means normal processing, 0 means abort the edit, and
+		   anything else is a character to substitute for the one typed. The mapping here used
+		   to be inverted -- 0 returned YES and so let rejected input straight through, while a
+		   substitution returned NO and dropped the keystroke. */
 		if(0 == ret_val)
 		{
-			return YES;
+			return NO;   /* rejected: by the mask, by NC, or by the callback */
 		}
 		else if(-1 != ret_val)
 		{
+			/* Replacement key. Insert it ourselves and reject the original, which is the
+			   equivalent of what gtkTextEntryInsertText does with gtk_editable_insert_text. */
+			if(nil != editing_text_view)
+			{
+				char replacement_char[2];
+				replacement_char[0] = (char)ret_val;
+				replacement_char[1] = 0;
+
+				ih->data->disable_callbacks = 1;
+				[editing_text_view insertText:[NSString stringWithUTF8String:replacement_char]
+				             replacementRange:change_range];
+				ih->data->disable_callbacks = 0;
+			}
 			return NO;
 		}
 		
@@ -300,7 +332,7 @@ static void cocoaTextFieldOverrideContextMenuHelper(Ihandle* ih, NSTextView* tex
 	NSTextField* text_field = self;
 	Ihandle* ih = (Ihandle*)objc_getAssociatedObject(text_field, IHANDLE_ASSOCIATED_OBJ_KEY);
 	
-	ret_flag = IupCocoaTextFieldActionCallbackHelper(ih, change_range, replacement_string);
+	ret_flag = IupCocoaTextFieldActionCallbackHelper(ih, text_view, change_range, replacement_string);
 	if(YES == ret_flag)
 	{
 	    [text_view didChangeText];
@@ -370,7 +402,7 @@ static void cocoaTextFieldOverrideContextMenuHelper(Ihandle* ih, NSTextView* tex
 	NSTextField* text_field = self;
 	Ihandle* ih = (Ihandle*)objc_getAssociatedObject(text_field, IHANDLE_ASSOCIATED_OBJ_KEY);
 	
-	ret_flag = IupCocoaTextFieldActionCallbackHelper(ih, change_range, replacement_string);
+	ret_flag = IupCocoaTextFieldActionCallbackHelper(ih, text_view, change_range, replacement_string);
 	if(YES == ret_flag)
 	{
 	    [text_view didChangeText];
@@ -393,6 +425,63 @@ static void cocoaTextFieldOverrideContextMenuHelper(Ihandle* ih, NSTextView* tex
 }
 
 @end
+
+/* NSTextView has no overtype mode -- unlike GtkTextView, which has
+   gtk_text_view_set_overwrite -- so OVERWRITE has to be implemented by hand. The Windows
+   driver does the same thing, by synthesising a VK_INSERT.
+
+   -insertText:replacementRange: is the right layer: it is where AppKit resolves the target
+   range before proposing the edit, so widening it here makes the incoming character replace
+   the next one instead of pushing it along. Doing it from the delegate's
+   textView:shouldChangeTextInRange: would not work -- by then the range is already fixed and
+   the edit is applied to it, not to whatever the selection is changed to. */
+@interface IupCocoaTextView : NSTextView
+@end
+
+@implementation IupCocoaTextView
+
+- (void) insertText:(id)insert_object replacementRange:(NSRange)replacement_range
+{
+	Ihandle* ih = (Ihandle*)objc_getAssociatedObject(self, IHANDLE_ASSOCIATED_OBJ_KEY);
+
+	if((NULL != ih) && iupAttribGetBoolean(ih, "OVERWRITE"))
+	{
+		NSRange target_range = replacement_range;
+		if(NSNotFound == target_range.location)
+		{
+			target_range = [self selectedRange];
+		}
+
+		NSString* insert_string = [insert_object isKindOfClass:[NSAttributedString class]]
+			? [(NSAttributedString*)insert_object string]
+			: (NSString*)insert_object;
+		NSString* full_text = [[self textStorage] string];
+
+		/* Only a plain insertion overwrites: with an existing selection the typed character
+		   replaces it either way, and a newline must not eat the character after it. */
+		if((0 == target_range.length)
+			&& (target_range.location < [full_text length])
+			&& ([insert_string length] > 0)
+			&& (NSNotFound == [insert_string rangeOfString:@"\n"].location))
+		{
+			/* Step by composed character sequence so a surrogate pair or a combining mark is
+			   consumed whole rather than half. */
+			NSRange next_character = [full_text rangeOfComposedCharacterSequenceAtIndex:target_range.location];
+			NSString* next_string = [full_text substringWithRange:next_character];
+
+			if(![next_string isEqualToString:@"\n"] && ![next_string isEqualToString:@"\r"])
+			{
+				target_range.length = next_character.length;
+				replacement_range = target_range;
+			}
+		}
+	}
+
+	[super insertText:insert_object replacementRange:replacement_range];
+}
+
+@end
+
 
 @interface IupCocoaTextFieldDelegate : NSObject <NSControlTextEditingDelegate, NSTextFieldDelegate>
 @end
@@ -497,7 +586,7 @@ static void cocoaTextFieldOverrideContextMenuHelper(Ihandle* ih, NSTextView* tex
 - (BOOL) textView:(NSTextView*)text_view shouldChangeTextInRange:(NSRange)change_range replacementString:(NSString*)replacement_string
 {
 	Ihandle* ih = (Ihandle*)objc_getAssociatedObject(text_view, IHANDLE_ASSOCIATED_OBJ_KEY);
-	BOOL ret_flag = IupCocoaTextFieldActionCallbackHelper(ih, change_range, replacement_string);
+	BOOL ret_flag = IupCocoaTextFieldActionCallbackHelper(ih, text_view, change_range, replacement_string);
 	if(YES == ret_flag)
 	{
 	    [text_view didChangeText];
@@ -4482,13 +4571,19 @@ static int cocoaTextSetScrollToAttrib(Ihandle* ih, const char* value)
 	int start_int = 0;
 	int end_int = 0;
 	
-	if(iupStrToIntInt(value, &start_int, &end_int, ':')!=2)
+	/* SCROLLTO is "lin,col". Parsing it with ':' -- SELECTION's separator -- meant the value
+	   never parsed and the call was silently discarded. GTK defaults both parts to 1
+	   rather than requiring both to be present. */
+	start_int = 1;
+	end_int = 1;
+	iupStrToIntInt(value, &start_int, &end_int, ',');
+	if(start_int < 1)
 	{
-		return 0;
+		start_int = 1;
 	}
-	if(start_int<0 || end_int<0)
+	if(end_int < 1)
 	{
-		return 0;
+		end_int = 1;
 	}
 	NSUInteger lin_start=start_int;
 	NSUInteger col_start=end_int;
@@ -4632,13 +4727,19 @@ static int cocoaTextSetCaretAttrib(Ihandle* ih, const char* value)
 	int start_int = 0;
 	int end_int = 0;
 	
-	if(iupStrToIntInt(value, &start_int, &end_int, ':')!=2)
+	/* CARET is "lin,col". Parsing it with ':' -- SELECTION's separator -- meant the value
+	   never parsed and the call was silently discarded. GTK defaults both parts to 1
+	   rather than requiring both to be present. */
+	start_int = 1;
+	end_int = 1;
+	iupStrToIntInt(value, &start_int, &end_int, ',');
+	if(start_int < 1)
 	{
-		return 0;
+		start_int = 1;
 	}
-	if(start_int<0 || end_int<0)
+	if(end_int < 1)
 	{
-		return 0;
+		end_int = 1;
 	}
 	NSUInteger lin_start=start_int;
 	NSUInteger col_start=end_int;
@@ -4972,6 +5073,109 @@ static char* cocoaTextGetLineValueAttrib(Ihandle* ih)
 	
 }
 
+/* TABSIZE, PADDING and OVERWRITE were the three attributes the GTK driver registers that this
+   one still had sitting in an #if 0 block. */
+
+static int cocoaTextSetTabSizeAttrib(Ihandle* ih, const char* value)
+{
+	int tab_size;
+
+	if(!ih->data->is_multiline)
+	{
+		return 0;
+	}
+	if(!iupStrToInt(value, &tab_size) || (tab_size <= 0))
+	{
+		return 0;
+	}
+
+	NSTextView* text_view = cocoaTextGetTextView(ih);
+	if(nil == text_view)
+	{
+		return 1;  /* keep the value; it is applied when the view exists */
+	}
+
+	IupCocoaFont* iup_font = iupCocoaGetFont(ih);
+	NSFont* ns_font = (nil != iup_font) ? [iup_font nativeFont] : [NSFont userFixedPitchFontOfSize:0.0];
+	CGFloat space_width = [@" " sizeWithAttributes:[NSDictionary dictionaryWithObject:ns_font forKey:NSFontAttributeName]].width;
+
+	NSParagraphStyle* current_style = [text_view defaultParagraphStyle];
+	if(nil == current_style)
+	{
+		current_style = [NSParagraphStyle defaultParagraphStyle];
+	}
+	NSMutableParagraphStyle* paragraph_style = [[current_style mutableCopy] autorelease];
+
+	/* defaultTabInterval is only consulted once the explicit tab stops are gone; leaving
+	   AppKit's default 12 stops in place is why setting it alone appears to do nothing. */
+	[paragraph_style setTabStops:[NSArray array]];
+	[paragraph_style setDefaultTabInterval:(space_width * (CGFloat)tab_size)];
+
+	[text_view setDefaultParagraphStyle:paragraph_style];
+
+	/* Apply to text that is already there, and to whatever is typed next. */
+	NSTextStorage* text_storage = [text_view textStorage];
+	if([text_storage length] > 0)
+	{
+		[text_storage beginEditing];
+		[text_storage addAttribute:NSParagraphStyleAttributeName
+		                     value:paragraph_style
+		                     range:NSMakeRange(0, [text_storage length])];
+		[text_storage endEditing];
+	}
+
+	NSMutableDictionary* typing_attributes = [[[text_view typingAttributes] mutableCopy] autorelease];
+	[typing_attributes setObject:paragraph_style forKey:NSParagraphStyleAttributeName];
+	[text_view setTypingAttributes:typing_attributes];
+
+	return 1;
+}
+
+static int cocoaTextSetPaddingAttrib(Ihandle* ih, const char* value)
+{
+	iupStrToIntInt(value, &ih->data->horiz_padding, &ih->data->vert_padding, 'x');
+
+	/* The shared natural-size code adds 2*padding on each axis (iup_text.c), so the layout
+	   half works everywhere just by storing these. What the driver owes is the visual inset. */
+	if(ih->handle)
+	{
+		if(ih->data->is_multiline)
+		{
+			NSTextView* text_view = cocoaTextGetTextView(ih);
+			if(nil != text_view)
+			{
+				[text_view setTextContainerInset:NSMakeSize((CGFloat)ih->data->horiz_padding,
+				                                            (CGFloat)ih->data->vert_padding)];
+			}
+		}
+		/* A single-line NSTextField has no inner-inset API -- its cell owns that geometry --
+		   so only the size grows, which is also all GTK does there (it sets an outer widget
+		   margin, not an inner one). */
+	}
+
+	return 0;  /* IUPAF_NOT_MAPPED: the value lives in ih->data, and iupTextGetPaddingAttrib reads it back */
+}
+
+static int cocoaTextSetOverwriteAttrib(Ihandle* ih, const char* value)
+{
+	if(!ih->data->is_multiline)
+	{
+		return 0;
+	}
+	/* Stored in the hash table and read by IupCocoaTextView on each insertion. */
+	return 1;
+	(void)value;
+}
+
+static char* cocoaTextGetOverwriteAttrib(Ihandle* ih)
+{
+	if(!ih->data->is_multiline)
+	{
+		return NULL;
+	}
+	return iupStrReturnChecked(iupAttribGetBoolean(ih, "OVERWRITE"));
+}
+
 static int cocoaTextSetCueBannerAttrib(Ihandle *ih, const char *value)
 {
 	NSString* ns_string;
@@ -5279,9 +5483,12 @@ static int cocoaTextSetAppendAttrib(Ihandle* ih, const char* value)
 			  [attributed_append_string autorelease];
 			  
 			  [old_string_value appendAttributedString:attributed_append_string];
-			  
-			  
-			  
+
+			  /* This result used to be computed and then dropped on the floor -- the mutable
+			     copy was appended to and never handed back, so APPEND silently did nothing on
+			     a single-line IupText. */
+			  [text_field setAttributedStringValue:old_string_value];
+
 			  break;
 		  }
 		  default:
@@ -5634,17 +5841,29 @@ static char* cocoaTextGetLineCountAttrib(Ihandle* ih)
 	
 	NSTextView* text_view = cocoaTextGetTextView(ih);
 	
-	NSLayoutManager* layout_manager = [text_view layoutManager];
-	NSUInteger number_of_lines;
-	NSUInteger index;
-	
-	NSUInteger number_of_glyphs = [layout_manager numberOfGlyphs];
-	NSRange line_range = NSMakeRange(0, 0);
-	
-	for(number_of_lines = 0, index = 0; index < number_of_glyphs;)
+	/* Two bugs here: the loop never incremented number_of_lines, so this always returned 0;
+	   and walking the layout manager's line fragments counts WRAPPED display lines, while
+	   IUP means logical lines -- gtk_text_buffer_get_line_count, the parity target, counts
+	   newlines. Count line ranges in the string instead. */
+	NSString* text_string = [[text_view textStorage] string];
+	NSUInteger text_length = [text_string length];
+	NSUInteger number_of_lines = 0;
+	NSUInteger index = 0;
+
+	while(index < text_length)
 	{
-		(void) [layout_manager lineFragmentRectForGlyphAtIndex:index effectiveRange:&line_range];
-		index = NSMaxRange(line_range);
+		index = NSMaxRange([text_string lineRangeForRange:NSMakeRange(index, 0)]);
+		number_of_lines++;
+	}
+
+	/* A trailing newline opens one more (empty) line, which is how GTK counts it too. */
+	if((text_length > 0) && [[NSCharacterSet newlineCharacterSet] characterIsMember:[text_string characterAtIndex:text_length - 1]])
+	{
+		number_of_lines++;
+	}
+	if(0 == number_of_lines)
+	{
+		number_of_lines = 1;
 	}
 	
 	// FIXME: Iup is artificially constraining us to 32-bit by not supporting 64-bit variants.
@@ -6117,11 +6336,10 @@ static int cocoaTextMapMethod(Ihandle* ih)
 //		[scroll_view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 		
 		
-		NSTextView* text_view = [[NSTextView alloc] initWithFrame:NSZeroRect];
-//		NSTextView* text_view = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, 400, 400)];
-
-		
-		text_view = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, scrollview_content_size.width, scrollview_content_size.height)];
+		/* This used to allocate a zero-rect NSTextView and then immediately overwrite the
+		   variable with a second one, leaking the first on every multiline IupText (there is
+		   no ARC here -- iupcocoa_common.m has an #error to that effect). */
+		IupCocoaTextView* text_view = [[IupCocoaTextView alloc] initWithFrame:NSMakeRect(0, 0, scrollview_content_size.width, scrollview_content_size.height)];
 
 		[text_view setMinSize:NSMakeSize(0.0, 0.0)];
 		[text_view setMaxSize:NSMakeSize(FLT_MAX, FLT_MAX)];
@@ -6597,12 +6815,8 @@ void iupdrvTextInitClass(Iclass* ic)
   // need to override active behavior for text
   iupClassRegisterAttribute(ic, "ACTIVE", cocoaTextGetActiveAttrib, cocoaTextSetActiveAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_DEFAULT);
 
-#if 0
-  /* Special */
-
   /* IupText only */
-  iupClassRegisterAttribute(ic, "PADDING", iupTextGetPaddingAttrib, gtkTextSetPaddingAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
-#endif
+  iupClassRegisterAttribute(ic, "PADDING", iupTextGetPaddingAttrib, cocoaTextSetPaddingAttrib, IUPAF_SAMEASSYSTEM, "0x0", IUPAF_NOT_MAPPED);
   iupClassRegisterAttribute(ic, "VALUE", cocoaTextGetValueAttrib, cocoaTextSetValueAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
 
   iupClassRegisterAttribute(ic, "LINEVALUE", cocoaTextGetLineValueAttrib, NULL, NULL, NULL, IUPAF_READONLY|IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
@@ -6638,11 +6852,8 @@ void iupdrvTextInitClass(Iclass* ic)
   iupClassRegisterAttribute(ic, "FORMATTING", cocoaTextGetFormattingAttrib, cocoaTextSetFormattingAttrib, NULL, NULL, IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "REMOVEFORMATTING", NULL, cocoaTextSetRemoveFormattingAttrib, NULL, NULL, IUPAF_WRITEONLY|IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "ALIGNMENT", NULL, cocoaTextSetAlignmentAttrib, IUPAF_SAMEASSYSTEM, "ALEFT", IUPAF_NO_INHERIT);
-#if 0
-  iupClassRegisterAttribute(ic, "OVERWRITE", gtkTextGetOverwriteAttrib, gtkTextSetOverwriteAttrib, NULL, NULL, IUPAF_NO_INHERIT);
-// FIXME:
-//  iupClassRegisterAttribute(ic, "TABSIZE", NULL, cocoaTextSetTabSizeAttrib, "8", NULL, IUPAF_DEFAULT);  /* force new default value */
-#endif
+  iupClassRegisterAttribute(ic, "OVERWRITE", cocoaTextGetOverwriteAttrib, cocoaTextSetOverwriteAttrib, NULL, NULL, IUPAF_NO_INHERIT);
+  iupClassRegisterAttribute(ic, "TABSIZE", NULL, cocoaTextSetTabSizeAttrib, "8", NULL, IUPAF_DEFAULT);  /* force new default value */
   iupClassRegisterAttribute(ic, "PASSWORD", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "CUEBANNER", NULL, cocoaTextSetCueBannerAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 
