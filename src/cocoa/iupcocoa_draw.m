@@ -553,25 +553,56 @@ void iupdrvDrawFlush(IdrawCanvas* dc)
 	// I don't think Apple gives us anything do anything here.
 }
 
-// TODO: w,h are new parameters added after this implementation, but before the merge. Need to test w,h implementation.
 void iupdrvDrawImage(IdrawCanvas* dc, const char* name, int make_inactive, const char* bgcolor, int x, int y, int w, int h)
 {
-//	NSLog(@"iupdrvDrawImage not implemented");
+	int image_width = 0;
+	int image_height = 0;
+	int bits_per_pixel = 0;
 	CGContextRef cg_context = dc->cgContext;
+	// Iup caches this and hands back the same pointer, so it must not be released here.
 	NSImage* user_image = (NSImage*)iupImageGetImage(name, dc->ih, make_inactive, bgcolor);
-//	[user_image autorelease]; // BAD: Iup is caching the value and returns the same pointer if cached. This results in a double autorelease.
-//	NSImageRep* user_image_rep = nil;
+	NSRect target_rect;
+	NSGraphicsContext* nsgc;
 
-//	NSSize image_size = [user_image size];
-//	NSRect target_rect = NSMakeRect(x, y, image_size.width, image_size.height);
-	NSRect target_rect = NSMakeRect(x, y, w, h);
-	NSGraphicsContext* nsgc = [NSGraphicsContext graphicsContextWithCGContext:cg_context flipped:YES];
+	if((nil == user_image) || (NULL == cg_context))
+	{
+		return;
+	}
+
+	/* w/h of -1 (or 0) mean "draw at the image's own size" -- IupDrawImage's documented
+	   contract, and what every caller in the tree that does not scale passes. Feeding those
+	   straight into NSMakeRect produced an empty rect, so nothing was drawn at all: this is
+	   why IupColorBrowser showed its markers but no colour wheel. Take the size from the
+	   native image rather than the Ihandle, since it may have come from a file or a
+	   resource. */
+	iupdrvImageGetInfo(user_image, &image_width, &image_height, &bits_per_pixel);
+	if((-1 == w) || (0 == w))
+	{
+		w = image_width;
+	}
+	if((-1 == h) || (0 == h))
+	{
+		h = image_height;
+	}
+	if((w <= 0) || (h <= 0))
+	{
+		return;
+	}
+
+	target_rect = NSMakeRect(x, y, w, h);
+
+	/* The context already carries the top-left-origin flip pushed in iupdrvDrawCreateCanvas,
+	   so it must be declared flipped here or AppKit draws the image upside down. */
+	nsgc = [NSGraphicsContext graphicsContextWithCGContext:cg_context flipped:YES];
 	[NSGraphicsContext saveGraphicsState];
 	[NSGraphicsContext setCurrentContext:nsgc];
-	
-	[user_image drawInRect:target_rect];
+
+	[user_image drawInRect:target_rect
+	              fromRect:NSZeroRect
+	             operation:NSCompositingOperationSourceOver
+	              fraction:1.0];
+
 	[NSGraphicsContext restoreGraphicsState];
-	
 }
 
 

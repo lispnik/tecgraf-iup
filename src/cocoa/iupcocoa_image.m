@@ -43,11 +43,17 @@ static int CalculateBytesPerRow(int width, int bytes_per_pixel)
 	return (pitch);
 }
 
+/* Deliberately unused: this returned the 4-byte-aligned stride divided by the pixel size,
+   which is neither the pixel count of a row nor a usable byte step, and using it as a loop
+   bound is what sheared every image whose width*bpp was not a multiple of 4. Ask the
+   NSBitmapImageRep for -bytesPerRow instead. */
+#if 0
 static int CalculateRowLength(int width, int bytes_per_pixel)
 {
 	int pitch = CalculateBytesPerRow(width, bytes_per_pixel);
 	return pitch/bytes_per_pixel;
 }
+#endif
 
 int iupCocoaImageCaluclateBytesPerRow(int width, int bytes_per_pixel)
 {
@@ -331,7 +337,8 @@ NSBitmapImageRep* iupCocoaImageNSBitmapImageRepFromPixels(int width, int height,
 
 		//  unsigned char *pixels = malloc(width*height*bpp);
 		unsigned char *pixels = [bitmap_image bitmapData];
-		int row_length = CalculateRowLength(width, 4);
+		unsigned char* pixels_row_start = pixels;
+		NSInteger bytes_per_row = [bitmap_image bytesPerRow];
 
 
 		
@@ -340,7 +347,13 @@ NSBitmapImageRep* iupCocoaImageNSBitmapImageRepFromPixels(int width, int height,
 		
 		for(int y=0;y<height;y++)
 		{
-			for(int x=0;x<row_length;x++)
+			/* NSBitmapImageRep pads every row up to a 4-byte boundary, so a row can be wider
+			   than the pixels written into it. Advancing the destination only by what was
+			   written left each row one padding-width short, shearing the image progressively
+			   -- which is why odd widths broke and aligned ones did not. IupColorBrowser is
+			   181 pixels wide by default, and 181*3 = 543 is not a multiple of 4. */
+			pixels = pixels_row_start + (y * bytes_per_row);
+			for(int x=0;x<width;x++)
 			{
 				unsigned char s_r = *source_pixel;
 				source_pixel++;
@@ -375,8 +388,9 @@ NSBitmapImageRep* iupCocoaImageNSBitmapImageRepFromPixels(int width, int height,
 		
 		//  unsigned char *pixels = malloc(width*height*bpp);
 		unsigned char *pixels = [bitmap_image bitmapData];
+		unsigned char* pixels_row_start = pixels;
+		NSInteger bytes_per_row = [bitmap_image bytesPerRow];
 		
-		int row_length = CalculateRowLength(width, 3);
 		
 		source_pixel = imgdata;
 		
@@ -384,7 +398,13 @@ NSBitmapImageRep* iupCocoaImageNSBitmapImageRepFromPixels(int width, int height,
 
 		for(int y=0;y<height;y++)
 		{
-			for(int x=0;x<row_length;x++)
+			/* NSBitmapImageRep pads every row up to a 4-byte boundary, so a row can be wider
+			   than the pixels written into it. Advancing the destination only by what was
+			   written left each row one padding-width short, shearing the image progressively
+			   -- which is why odd widths broke and aligned ones did not. IupColorBrowser is
+			   181 pixels wide by default, and 181*3 = 543 is not a multiple of 4. */
+			pixels = pixels_row_start + (y * bytes_per_row);
+			for(int x=0;x<width;x++)
 			{
 				unsigned char s_r = *source_pixel;
 				source_pixel++;
@@ -416,8 +436,9 @@ NSBitmapImageRep* iupCocoaImageNSBitmapImageRepFromPixels(int width, int height,
 		
 		//  unsigned char *pixels = malloc(width*height*bpp);
 		unsigned char *pixels = [bitmap_image bitmapData];
+		unsigned char* pixels_row_start = pixels;
+		NSInteger bytes_per_row = [bitmap_image bytesPerRow];
 		
-		int row_length = CalculateRowLength(width, 4);
 
 
 		
@@ -433,7 +454,13 @@ NSBitmapImageRep* iupCocoaImageNSBitmapImageRepFromPixels(int width, int height,
 		
 		for(int y=0;y<height;y++)
 		{
-			for(int x=0;x<row_length;x++)
+			/* NSBitmapImageRep pads every row up to a 4-byte boundary, so a row can be wider
+			   than the pixels written into it. Advancing the destination only by what was
+			   written left each row one padding-width short, shearing the image progressively
+			   -- which is why odd widths broke and aligned ones did not. IupColorBrowser is
+			   181 pixels wide by default, and 181*3 = 543 is not a multiple of 4. */
+			pixels = pixels_row_start + (y * bytes_per_row);
+			for(int x=0;x<width;x++)
 			{
 				unsigned char index = *source_pixel;
 				iupColor* c = &colors[index];
@@ -613,7 +640,8 @@ void* iupdrvImageCreateImage(Ihandle *ih, const char* bgcolor, int make_inactive
 
 		//  unsigned char *pixels = malloc(width*height*bpp);
 		unsigned char *pixels = [bitmap_image bitmapData];
-		int row_length = CalculateRowLength(width, 4);
+		unsigned char* pixels_row_start = pixels;
+		NSInteger bytes_per_row = [bitmap_image bytesPerRow];
 
 
 		
@@ -622,7 +650,13 @@ void* iupdrvImageCreateImage(Ihandle *ih, const char* bgcolor, int make_inactive
 		
 		for(int y=0;y<height;y++)
 		{
-			for(int x=0;x<row_length;x++)
+			/* NSBitmapImageRep pads every row up to a 4-byte boundary, so a row can be wider
+			   than the pixels written into it. Advancing the destination only by what was
+			   written left each row one padding-width short, shearing the image progressively
+			   -- which is why odd widths broke and aligned ones did not. IupColorBrowser is
+			   181 pixels wide by default, and 181*3 = 543 is not a multiple of 4. */
+			pixels = pixels_row_start + (y * bytes_per_row);
+			for(int x=0;x<width;x++)
 			{
 				unsigned char s_r = *source_pixel;
 				source_pixel++;
@@ -661,8 +695,9 @@ void* iupdrvImageCreateImage(Ihandle *ih, const char* bgcolor, int make_inactive
 		
 		//  unsigned char *pixels = malloc(width*height*bpp);
 		unsigned char *pixels = [bitmap_image bitmapData];
+		unsigned char* pixels_row_start = pixels;
+		NSInteger bytes_per_row = [bitmap_image bytesPerRow];
 		
-		int row_length = CalculateRowLength(width, 3);
 		
 		source_pixel = imgdata;
 		
@@ -670,7 +705,13 @@ void* iupdrvImageCreateImage(Ihandle *ih, const char* bgcolor, int make_inactive
 
 		for(int y=0;y<height;y++)
 		{
-			for(int x=0;x<row_length;x++)
+			/* NSBitmapImageRep pads every row up to a 4-byte boundary, so a row can be wider
+			   than the pixels written into it. Advancing the destination only by what was
+			   written left each row one padding-width short, shearing the image progressively
+			   -- which is why odd widths broke and aligned ones did not. IupColorBrowser is
+			   181 pixels wide by default, and 181*3 = 543 is not a multiple of 4. */
+			pixels = pixels_row_start + (y * bytes_per_row);
+			for(int x=0;x<width;x++)
 			{
 				unsigned char s_r = *source_pixel;
 				source_pixel++;
@@ -705,8 +746,9 @@ void* iupdrvImageCreateImage(Ihandle *ih, const char* bgcolor, int make_inactive
 		
 		//  unsigned char *pixels = malloc(width*height*bpp);
 		unsigned char *pixels = [bitmap_image bitmapData];
+		unsigned char* pixels_row_start = pixels;
+		NSInteger bytes_per_row = [bitmap_image bytesPerRow];
 		
-		int row_length = CalculateRowLength(width, 4);
 
 		int colors_count = 0;
 		iupColor colors[256];
@@ -723,7 +765,13 @@ void* iupdrvImageCreateImage(Ihandle *ih, const char* bgcolor, int make_inactive
 		
 		for(int y=0;y<height;y++)
 		{
-			for(int x=0;x<row_length;x++)
+			/* NSBitmapImageRep pads every row up to a 4-byte boundary, so a row can be wider
+			   than the pixels written into it. Advancing the destination only by what was
+			   written left each row one padding-width short, shearing the image progressively
+			   -- which is why odd widths broke and aligned ones did not. IupColorBrowser is
+			   181 pixels wide by default, and 181*3 = 543 is not a multiple of 4. */
+			pixels = pixels_row_start + (y * bytes_per_row);
+			for(int x=0;x<width;x++)
 			{
 				unsigned char index = *source_pixel;
 				iupColor* c = &colors[index];

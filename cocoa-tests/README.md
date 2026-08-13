@@ -17,6 +17,13 @@ So the parity harnesses read the **native** state instead: the `NSButton`'s `tex
 checks in here were written the lazy way first, passed, and only failed once they were pointed at
 the real control.
 
+When a harness samples pixels out of a capture, compare **which channel leads**, not absolute
+levels: the captured rep is colour-managed, so pure red comes back as roughly
+`(0.94, 0.29, 0.18)` and pure green as `(0.49, 0.95, 0.31)`. Thresholds like `red > 0.9 &&
+green < 0.2`, and even a `red > 2*green` ratio, fail on correct output. Reading pixels out of
+an `NSImage`'s own `NSBitmapImageRep` (as `imglib.m` does) preserves exact values; only screen
+captures are converted.
+
 A related trap: `-cacheDisplayInRect:` does **not** render `NSTextField`, `NSButton` or
 `NSScroller`. Screenshots of those come out blank even when the control is drawing perfectly, so do
 not use a capture to prove text or a push button is wrong. Custom-drawn views (`IupCanvas`,
