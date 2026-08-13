@@ -21,14 +21,28 @@ fi
 
 NAMES=("$@")
 if [ ${#NAMES[@]} -eq 0 ]; then
-  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity)
+  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity plotpdf)
 fi
 
 status=0
 for name in "${NAMES[@]}"; do
   src=$HERE/parity/$name.m
   [ -e "$src" ] || { echo "no such harness: $name"; status=1; continue; }
-  if ! clang -g -o "$BIN/$name" "$src" \
+
+  # IupPlot ships as a static archive built by build_apps.sh rather than as a framework, so the
+  # one harness that needs it says so here instead of every harness paying for it.
+  EXTRA=()
+  if [ "$name" = plotpdf ]; then
+    PLOTLIB=$FW/extra/plot/libiup_plot.a
+    if [ ! -e "$PLOTLIB" ]; then
+      echo "=== $name: SKIPPED (run build_apps.sh first to build $PLOTLIB)"; continue
+    fi
+    # ...and the same per-symbol stubs the samples link, for the CD drivers macOS has no
+    # implementation of (PS, CGM). Note this deliberately no longer stubs cdContextPDF.
+    EXTRA=("$PLOTLIB" "$FW/extra/sample_link_stubs.o" -lc++ -I"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/include")
+  fi
+
+  if ! clang -g -o "$BIN/$name" "$src" "${EXTRA[@]}" \
         -I"$IUP/include" -I"$IUP/src" -framework Cocoa \
         -F"$FW" -framework iup -framework iupcontrols -framework iupimglib -framework iupcd -framework iupgl -framework OpenGL -L"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/lib" -lcd -Wl,-rpath,"$FW" \
         -Wno-deprecated-declarations 2>"$BIN/$name.buildlog"; then

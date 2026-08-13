@@ -24,6 +24,7 @@
 #include <cdcgm.h>
 #include <cdclipbd.h>
 #include <cdps.h>
+#include <cdpdf.h>
 
 #include "iup_class.h"
 #include "iup_register.h"
@@ -123,6 +124,37 @@ static int iPlotExportEPS_CB(Ihandle* self)
     int dpi = IupGetInt(NULL, "SCREENDPI");
     sprintf(StrData, "%s -e -s%d", filename, dpi);
     cdCanvas* cd_canvas = cdCreateCanvas(CD_PS, StrData);
+    if (cd_canvas)
+    {
+      IupPlotPaintTo(ih, cd_canvas);
+      cdKillCanvas(cd_canvas);
+    }
+    else
+      IupMessageError(IupGetDialog(ih), "IUP_ERRORFILESAVE");
+  }
+  return IUP_DEFAULT;
+}
+
+static int iPlotExportPDF_CB(Ihandle* self)
+{
+  Ihandle* ih = (Ihandle*)IupGetAttribute(self, "PLOT");
+  char filename[10240] = "*.pdf";
+  if (iPlotSelectFile(IupGetDialog(ih), filename, "_@IUP_EXPORT", "Portable Document Format (PDF)|*.pdf|All Files|*.*|"))
+  {
+    char StrData[10240];
+    int dpi = IupGetInt(NULL, "SCREENDPI");
+    int w = 0, h = 0;
+    IupGetIntInt(ih, "DRAWSIZE", &w, &h);
+
+    /* Give the page the proportions of the plot on screen, rather than the driver's default
+       paper, so the exported drawing is not letterboxed or cropped. The size is the only thing
+       that has to be said in millimetres; everything inside stays in pixels at this dpi. */
+    if (w > 0 && h > 0 && dpi > 0)
+      sprintf(StrData, "%s -w%g -h%g -s%d", filename, (25.4 * w) / dpi, (25.4 * h) / dpi, dpi);
+    else
+      sprintf(StrData, "%s -s%d", filename, dpi);
+
+    cdCanvas* cd_canvas = cdCreateCanvas(CD_PDF, StrData);
     if (cd_canvas)
     {
       IupPlotPaintTo(ih, cd_canvas);
@@ -1349,6 +1381,7 @@ static Ihandle* iPlotCreateMenuContext(Ihandle* ih, int x, int y)
     IupMenu(
     IupSetCallbacks(IupItem("SVG...", NULL), "ACTION", iPlotExportSVG_CB, NULL),
     IupSetCallbacks(IupItem("EPS...", NULL), "ACTION", iPlotExportEPS_CB, NULL),
+    IupSetCallbacks(IupItem("PDF...", NULL), "ACTION", iPlotExportPDF_CB, NULL),
     IupSetCallbacks(IupItem("CGM...", NULL), "ACTION", iPlotExportCGM_CB, NULL),
 #ifdef WIN32
     IupSetCallbacks(IupItem("EMF...", NULL), "ACTION", iPlotExportEMF_CB, NULL),
