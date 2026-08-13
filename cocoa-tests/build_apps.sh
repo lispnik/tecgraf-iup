@@ -15,7 +15,7 @@ rm -rf "$OUT"; mkdir -p "$OUT" "$LOG"
 
 # -include stdlib.h: several samples use EXIT_SUCCESS without including it.
 # The rest silence C89-era constructs modern clang rejects outright.
-CFLAGS="-I$IUP/include -I$BREW/include -include stdlib.h \
+CFLAGS="-I$IUP/include -I$BREW/include -I$IUP/cocoa-tests/glshim -include stdlib.h \
  -Wno-invalid-source-encoding -Wno-deprecated-declarations \
  -Wno-implicit-function-declaration -Wno-int-conversion $*"
 # IupIm (srcim/iup_im.c) is not a target in IUP's CMakeLists, but the IM library it needs is
@@ -50,20 +50,16 @@ fi
 CDSTUB=""
 if ! nm -gU $BREW/lib/libcd.dylib 2>/dev/null | grep -q " _cdContextPrinter$"; then
   CDSTUB=$FW/extra/sample_link_stubs.o
-  if [ ! -e "$CDSTUB" ]; then
+  # Rebuild when the stub source changes, not just when the object is missing: a stale object
+  # kept exporting no-op IupGLCanvasOpen/MakeCurrent/SwapBuffers after the real iupgl framework
+  # existed, and being listed ahead of the frameworks it won the link -- so the glcanvas class
+  # was never registered and every GL sample came up as a 0x0 window.
+  if [ ! -e "$CDSTUB" ] || [ "$0" -nt "$CDSTUB" ]; then
     mkdir -p "$FW/extra"
     cat > "$FW/extra/sample_link_stubs.c" <<'STUB'
 /* No printer driver in CD on macOS; see build_apps.sh. cdCreateCanvas returns NULL for a NULL
    context, which is what the samples already check for. */
 void* cdContextPrinter(void) { return 0; }
-
-/* IupPlot references these three unconditionally, but only reaches them when its graphics_mode
-   is IUP_PLOT_OPENGL -- which cannot happen here, because IupGLCanvas has no Cocoa backend at
-   all (srcgl/ has only win, x and haiku implementations). IupPlotOpen() does call
-   IupGLCanvasOpen() unconditionally, so it has to link; a no-op is correct. */
-void IupGLCanvasOpen(void) { }
-void IupGLMakeCurrent(void* ih) { (void)ih; }
-void IupGLSwapBuffers(void* ih) { (void)ih; }
 
 /* The macOS libcd exports 17 contexts, but not the CGM or PS ones IupPlot offers in its
    export-to-file menu (it does have Picture and SVG). cdCreateCanvas returns NULL for a NULL
@@ -75,7 +71,10 @@ STUB
   fi
 fi
 
-LDFLAGS="$CDSTUB $IUPIM $IUPPLOT -lc++ -lim -lim_process -F$FW -framework iup -framework iupimglib -framework iupcontrols -framework iupcd -framework iupweb -L$BREW/lib -lcd -Wl,-rpath,$FW"
+# GL: link the real iupgl framework, and put a GL/gl.h -> OpenGL/gl.h shim on the include
+# path, since macOS ships OpenGL as a framework and the samples use the header path every
+# other platform has.
+LDFLAGS="$CDSTUB $IUPIM $IUPPLOT -lc++ -lim -lim_process -F$FW -framework iup -framework iupimglib -framework iupcontrols -framework iupcd -framework iupgl -framework iupglcontrols -framework iupweb -framework OpenGL -framework GLUT -L$BREW/lib -lcd -Wl,-rpath,$FW"
 
 # A few tests in html/examples/tests call a function defined in a sibling test file without
 # declaring it; the symbol is satisfied at link time by compiling the sibling with -DBIG_TEST
@@ -112,9 +111,10 @@ for src in "$SRCDIR"/*.c; do
 PLIST
   # a few tests compile to nothing unless their own feature macro is defined
   case "$name" in
-    plot)    CFLAGS_EXTRA="-DPLOT_TEST" ;;
-    mglplot) CFLAGS_EXTRA="-DMGLPLOT_TEST" ;;
-    *)       CFLAGS_EXTRA="" ;;
+    plot)                CFLAGS_EXTRA="-DPLOT_TEST" ;;
+    mglplot)             CFLAGS_EXTRA="-DMGLPLOT_TEST" ;;
+    glcanvas|glcanvas_cube) CFLAGS_EXTRA="-DUSE_OPENGL" ;;
+    *)                   CFLAGS_EXTRA="" ;;
   esac
   comp=$(companion "$name"); extra=""
   if [ -n "$comp" ] && [ -e "$SRCDIR/$comp.c" ]; then

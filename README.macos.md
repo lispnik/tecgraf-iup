@@ -24,7 +24,12 @@ crash on launch:
     xcodebuild -project BUILD-xcode/iup.xcodeproj -target iup -configuration Release build
 
 Frameworks land in `BUILD-xcode/Release/`: `iup`, `iupcd`, `iupcontrols`, `iupimglib`,
-`iupweb`.
+`iupweb`, `iupgl`, `iupglcontrols`.
+
+`iupgl` (IupGLCanvas) and `iupglcontrols` (the OpenGL-drawn widget set) had no CMake target
+on any platform in this tree; they do now. `iupglcontrols` additionally needs FTGL, which it
+uses for text — `brew install ftgl`. Without it that one target is skipped with a message and
+everything else still builds.
 
 ## Samples
 
@@ -64,9 +69,15 @@ the failure mode this backend had.
 
 ## Known gaps
 
-- **IupGLCanvas has no Cocoa implementation at all.** `srcgl/` covers Windows, X11 and
-  Haiku only. This is why the `glcanvas*` samples do not build, and why `IupPlot` needed a
-  fallback: it derives its class from `glcanvas`, which does not exist here.
+- **OpenGL is deprecated by Apple.** `IupGLCanvas` is implemented (`srcgl/iup_glcanvas_cocoa.m`,
+  an `NSOpenGLContext` attached to the IupCanvas view), but macOS caps OpenGL at 4.1, reports
+  itself as `2.1 Metal` in the legacy profile, and warns at build time. A core profile is
+  available through `CONTEXTPROFILE=CORE`, but it is strictly core — the fixed-function
+  pipeline most IUP samples use is not in it.
+- **`IupGLUseFont` and `IupGLPalette` do nothing** and set `ERROR`. The first needed
+  `aglUseFont`, which Apple removed and never replaced; the second needs index-colour
+  visuals, which macOS OpenGL has never had. IupGLControls draws its own text via FTGL and
+  is unaffected.
 - **CD has no printer driver on macOS**, and no CGM or PS export context. The samples that
   use them link against stubs and simply cannot print or export to those formats.
 - **MathGL and Scintilla** are not built, so `mglplot`, `mathglsamples`, `mgllabel` and

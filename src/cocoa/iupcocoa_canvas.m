@@ -232,6 +232,22 @@
 	CGContextRef screen_context = [[NSGraphicsContext currentContext] CGContext];
 	NSRect bounds_rect = [self bounds];
 
+	/* An IupGLCanvas has an NSOpenGLContext attached to this view, and the window server
+	   composites that surface over the view's own content. Maintaining the CPU backing store
+	   for it would be a full-frame blit thrown away every frame, and its background fill
+	   would compete with the GL surface. The ACTION callback still runs -- that is how IUP
+	   tells the application to redraw -- it just issues GL calls instead of CoreGraphics
+	   ones. Set by the GL driver's Map method in srcgl/iup_glcanvas_cocoa.m. */
+	if(NULL != iupAttribGet(ih, "_IUPCOCOA_GLCANVAS"))
+	{
+		IFnff gl_action = (IFnff)IupGetCallback(ih, "ACTION");
+		if(gl_action)
+		{
+			gl_action(ih, ih->data->posx, ih->data->posy);
+		}
+		return;
+	}
+
 	[self iupEnsureBackingStore];
 	if(NULL == _backingContext)
 	{
