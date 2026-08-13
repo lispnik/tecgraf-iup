@@ -62,6 +62,85 @@ static NSWindow* cocoaDialogGetWindow(Ihandle* ih)
 	return root_object;
 }
 
+/* NSStatusItem delivers clicks through the target/action of its button, and nothing was ever
+   assigned -- so TRAYCLICK_CB was never called, whatever the application registered. This is
+   the receiver. It is retained as an associated object of the status item's button so it
+   lives exactly as long as the thing sending to it. */
+@interface IupCocoaTrayClickReceiver : NSObject
+@property(nonatomic, assign) Ihandle* ihandle;
+- (void) trayClicked:(id)sender;
+@end
+
+@implementation IupCocoaTrayClickReceiver
+
+- (void) trayClicked:(id)sender
+{
+	Ihandle* ih = [self ihandle];
+	IFniii call_back;
+
+	if(NULL == ih)
+	{
+		return;
+	}
+
+	call_back = (IFniii)IupGetCallback(ih, "TRAYCLICK_CB");
+	if(NULL != call_back)
+	{
+		NSEvent* current_event = [NSApp currentEvent];
+		/* IUP numbers buttons 1..3; a control-click is the right button by macOS convention. */
+		int button = 1;
+		int dclick = 0;
+		BOOL is_mouse_event = NO;
+
+		/* -clickCount and -modifierFlags are only defined for mouse events and RAISE for the
+		   rest, and [NSApp currentEvent] is whatever AppKit last handled -- which, when the
+		   action is invoked from anything other than a real click, is routinely not a mouse
+		   event. Check the type before touching either. */
+		if(nil != current_event)
+		{
+			switch([current_event type])
+			{
+				case NSEventTypeLeftMouseDown:
+				case NSEventTypeLeftMouseUp:
+				case NSEventTypeOtherMouseDown:
+				case NSEventTypeOtherMouseUp:
+					is_mouse_event = YES;
+					break;
+				case NSEventTypeRightMouseDown:
+				case NSEventTypeRightMouseUp:
+					is_mouse_event = YES;
+					button = 3;
+					break;
+				default:
+					break;
+			}
+		}
+
+		if(is_mouse_event)
+		{
+			if(([current_event modifierFlags] & NSEventModifierFlagControl) != 0)
+			{
+				button = 3;
+			}
+			if([current_event clickCount] >= 2)
+			{
+				dclick = 1;
+			}
+		}
+
+		/* pressed is 1: the action fires on the click, and AppKit does not report the release
+		   separately here. The GTK driver reports the same for the same reason. */
+		if(call_back(ih, button, 1, dclick) == IUP_CLOSE)
+		{
+			IupExitLoop();
+		}
+	}
+}
+
+@end
+
+static void* TRAYCLICKRECEIVER_ASSOCIATED_OBJ_KEY = "TRAYCLICKRECEIVER_ASSOCIATED_OBJ_KEY";
+
 static NSStatusItem* cocoaDialogGetStatusItem(Ihandle* ih)
 {
 	NSStatusItem* root_object = (NSStatusItem*)ih->handle;
@@ -1117,6 +1196,79 @@ static char* cocoaDialogGetActiveWindowAttrib(Ihandle* ih)
    Reporting the window's real background fixes all of them at once. This does not disturb
    inheritance: iupAttribGetInheritNativeParent reads the hash table directly and never goes
    through a getter. */
+/* macOS has no way to drop just the title bar from a titled window, but a full-size content
+   view with a transparent, empty title bar is the established equivalent and is what
+   applications actually want from HIDETITLEBAR: the content runs to the top edge while the
+   window keeps its traffic lights, resizing and shadow. */
+static int cocoaDialogSetHideTitleBarAttrib(Ihandle* ih, const char* value)
+{
+	NSWindow* the_window = cocoaDialogGetWindow(ih);
+	if(nil == the_window)
+	{
+		return 1;
+	}
+
+	if(iupStrBoolean(value))
+	{
+		[the_window setTitlebarAppearsTransparent:YES];
+		[the_window setTitleVisibility:NSWindowTitleHidden];
+		[the_window setStyleMask:([the_window styleMask] | NSWindowStyleMaskFullSizeContentView)];
+	}
+	else
+	{
+		[the_window setTitlebarAppearsTransparent:NO];
+		[the_window setTitleVisibility:NSWindowTitleVisible];
+		[the_window setStyleMask:([the_window styleMask] & ~NSWindowStyleMaskFullSizeContentView)];
+	}
+
+	return 1;
+}
+
+/* BACKGROUND takes either a colour or the name of an image, and unlike GTK -- whose own
+   implementation carries a "TODO: this is NOT working!!!!" against the image branch -- an
+   NSColor pattern tiles an image as a window background directly. */
+static int cocoaDialogSetBackgroundAttrib(Ihandle* ih, const char* value)
+{
+	NSWindow* the_window = cocoaDialogGetWindow(ih);
+	unsigned char r, g, b;
+
+	if(nil == the_window)
+	{
+		return 1;
+	}
+
+	if(NULL == value)
+	{
+		[the_window setBackgroundColor:[NSColor windowBackgroundColor]];
+		return 1;
+	}
+
+	if(iupStrToRGB(value, &r, &g, &b))
+	{
+		CGFloat rgba_components[4];
+		rgba_components[0] = (CGFloat)r / 255.0;
+		rgba_components[1] = (CGFloat)g / 255.0;
+		rgba_components[2] = (CGFloat)b / 255.0;
+		rgba_components[3] = 1.0;
+
+		[the_window setBackgroundColor:[NSColor colorWithColorSpace:[NSColorSpace deviceRGBColorSpace]
+		                                                components:rgba_components
+		                                                     count:4]];
+		return 1;
+	}
+
+	{
+		NSImage* background_image = (NSImage*)iupImageGetImage(value, ih, 0, NULL);
+		if(nil != background_image)
+		{
+			[the_window setBackgroundColor:[NSColor colorWithPatternImage:background_image]];
+			return 1;
+		}
+	}
+
+	return 1;
+}
+
 static char* cocoaDialogGetBgColorAttrib(Ihandle* ih)
 {
 	NSWindow* the_window = cocoaDialogGetWindow(ih);
@@ -1516,6 +1668,23 @@ static int cocoaDialogSetTrayAttrib(Ihandle* ih, const char* value)
 	bool should_enable = (bool)iupStrBoolean(value);
 	if(should_enable)
 	{
+		/* Attach the click receiver once. A status item that has a menu shows it on click and
+		   never sends the action, which matches how the GTK driver behaves too: there the menu
+		   popup path reports button 3. */
+		NSStatusBarButton* status_button = [status_item button];
+		if((nil != status_button) && (nil == objc_getAssociatedObject(status_button, TRAYCLICKRECEIVER_ASSOCIATED_OBJ_KEY)))
+		{
+			IupCocoaTrayClickReceiver* click_receiver = [[IupCocoaTrayClickReceiver alloc] init];
+			[click_receiver setIhandle:ih];
+			objc_setAssociatedObject(status_button, TRAYCLICKRECEIVER_ASSOCIATED_OBJ_KEY,
+				click_receiver, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[click_receiver release];
+
+			[status_button setTarget:click_receiver];
+			[status_button setAction:@selector(trayClicked:)];
+			[status_button sendActionOn:(NSEventMaskLeftMouseUp | NSEventMaskRightMouseUp)];
+		}
+
 		[status_item setVisible:YES];
 	}
 	else
@@ -1528,6 +1697,20 @@ static int cocoaDialogSetTrayAttrib(Ihandle* ih, const char* value)
 //		[status_bar removeStatusItem:status_item];
 	}
 
+	return 1;
+}
+
+static int cocoaDialogSetTrayTipAttrib(Ihandle* ih, const char* value)
+{
+	NSStatusItem* status_item = cocoaDialogGetStatusItem(ih);
+	NSStatusBarButton* status_button = [status_item button];
+
+	if(nil == status_button)
+	{
+		return 1;
+	}
+
+	[status_button setToolTip:(NULL != value) ? iupCocoaStringFromCStr(value) : nil];
 	return 1;
 }
 
@@ -1755,6 +1938,19 @@ void iupdrvDialogInitClass(Iclass* ic)
 	   NULL and everything asking the native parent for its colour got nothing. */
 	iupClassRegisterAttribute(ic, "BGCOLOR", cocoaDialogGetBgColorAttrib, iupdrvBaseSetBgColorAttrib, "DLGBGCOLOR", NULL, IUPAF_DEFAULT);  /* force new default value */
 
+	iupClassRegisterAttribute(ic, "BACKGROUND", NULL, cocoaDialogSetBackgroundAttrib, IUPAF_SAMEASSYSTEM, "DLGBGCOLOR", IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "HIDETITLEBAR", NULL, cocoaDialogSetHideTitleBarAttrib, NULL, NULL, IUPAF_NO_INHERIT);
+
+	/* Registered so it is a known attribute and the shared layout code's CUSTOMFRAME check
+	   (iupDialogGetDecorSize) behaves predictably. GTK registers it NULL/NULL for the same
+	   reason -- only the Windows driver draws a custom frame. */
+	iupClassRegisterAttribute(ic, "CUSTOMFRAME", NULL, NULL, IUPAF_SAMEASSYSTEM, NULL, IUPAF_DEFAULT);
+
+	/* A shaped window needs a borderless, transparent window whose content view draws the
+	   mask; there is no equivalent of gdk_window_shape_combine_region to bolt onto an ordinary
+	   titled NSWindow. Declared rather than silently missing. */
+	iupClassRegisterAttribute(ic, "SHAPEIMAGE", NULL, NULL, NULL, NULL, IUPAF_NOT_SUPPORTED|IUPAF_NO_INHERIT);
+
 	/* Special */
 	iupClassRegisterAttribute(ic, "TITLE", NULL, cocoaDialogSetTitleAttrib, NULL, NULL, IUPAF_NO_DEFAULTVALUE|IUPAF_NO_INHERIT);
 	
@@ -1796,13 +1992,17 @@ void iupdrvDialogInitClass(Iclass* ic)
 
 	// TODO: Consider using different names because these are not going to work perfectly out of the box porting from other platforms.
 	// TRAYIMAGE specifically most likely needs to be a different image that is only black & white. (e.g. TRAYIMAGE_BW)
+	/* Registered in the dead #if 0 block above, so the callback was not declared -- and with
+	   nothing assigned as the status item's action it was never invoked either. */
+	iupClassRegisterCallback(ic, "TRAYCLICK_CB", "iii");
+
 	iupClassRegisterAttribute(ic, "TRAY", NULL, cocoaDialogSetTrayAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "TRAYIMAGE", NULL, cocoaDialogSetTrayImageAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "TRAYMENU", cocoaDialogGetTrayMenuAttrib, cocoaDialogSetTrayMenuAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 
 #if 1
 
-	iupClassRegisterAttribute(ic, "TRAYTIP", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
+	iupClassRegisterAttribute(ic, "TRAYTIP", NULL, cocoaDialogSetTrayTipAttrib, NULL, NULL, IUPAF_NO_INHERIT);
 	iupClassRegisterAttribute(ic, "TRAYTIPMARKUP", NULL, NULL, IUPAF_SAMEASSYSTEM, NULL, IUPAF_DEFAULT);
 
 	iupClassRegisterAttribute(ic, "HIDETASKBAR", NULL, NULL, NULL, NULL, IUPAF_NO_INHERIT);
