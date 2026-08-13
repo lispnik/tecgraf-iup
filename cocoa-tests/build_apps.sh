@@ -31,15 +31,24 @@ fi
 # IupPlot (srcplot/*.cpp) is not a CMake target either, but it is pure C++ over CD and builds
 # cleanly, so build it here rather than leaving the plot samples unbuildable.
 IUPPLOT=$FW/extra/plot/libiup_plot.a
-if [ ! -e "$IUPPLOT" ]; then
-  mkdir -p "$FW/extra/plot"
-  for src in "$IUP"/srcplot/*.cpp; do
-    n=$(basename "$src" .cpp)
+# Rebuild per source file when it changes, and re-archive whenever any object is newer than
+# the archive. Building this only when the .a was missing meant an edit to srcplot never
+# reached the samples: plot.app kept linking a stale archive while a direct link of the
+# freshly built objects picked the fix up, which is a confusing pair of results to debug.
+mkdir -p "$FW/extra/plot"
+for src in "$IUP"/srcplot/*.cpp; do
+  n=$(basename "$src" .cpp)
+  if [ ! -e "$FW/extra/plot/$n.o" ] || [ "$src" -nt "$FW/extra/plot/$n.o" ]; then
     clang++ -c -std=c++11 -I"$IUP/include" -I"$IUP/src" -I"$IUP/srcplot" -I"$IUP/srccd" \
       -I$BREW/include -Wno-everything -o "$FW/extra/plot/$n.o" "$src" || exit 1
-  done
-  ar rcs "$IUPPLOT" "$FW"/extra/plot/*.o || exit 1
-fi
+  fi
+done
+for obj in "$FW"/extra/plot/*.o; do
+  if [ ! -e "$IUPPLOT" ] || [ "$obj" -nt "$IUPPLOT" ]; then
+    ar rcs "$IUPPLOT" "$FW"/extra/plot/*.o || exit 1
+    break
+  fi
+done
 
 # CD has no printer driver on macOS -- cdContextPrinter is a Windows/GDI-only symbol, and the
 # Quartz build of libcd exports nothing like it. Several tutorial samples reference CD_PRINTER
