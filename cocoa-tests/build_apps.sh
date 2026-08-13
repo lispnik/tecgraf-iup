@@ -76,6 +76,12 @@ void* cdContextPrinter(void) { return 0; }
 void* cdContextCGM(void) { return 0; }
 void* cdContextPS(void) { return 0; }
 
+/* CD's PDF driver is 220 calls into PDFlib, a commercial library that is not installed, which
+   is why CD_ENABLE_PDF defaults to OFF and libcd exports no cdContextPDF. The plot sample's
+   "Export PDF" button checks cdCreateCanvas for NULL, so with this stub it links and does
+   nothing here, and exports properly on a build that has PDFlib. */
+void* cdContextPDF(void) { return 0; }
+
 /* cdInitContextPlus enables CD's anti-aliased "Plus" contexts, which the macOS libcd does
    not ship. The samples that call it (canvas1, canvas_scrollbar2/3) only use it to opt into
    nicer rendering, so a no-op leaves them on the regular contexts. */

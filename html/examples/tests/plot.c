@@ -893,13 +893,18 @@ static int dial2_btnup_cb(Ihandle *self, double angle)
 static int bt1_cb(Ihandle *self)
 {
   int ii = tabs_get_index();
-  IupSetAttribute(plot[ii], "CLEAR", "Yes");
-  //  IupSetAttribute(plot[ii], "REMOVE", "0");
-  IupSetAttribute(plot[ii], "REDRAW", NULL);
+  cdCanvas* cnv;
 
-  //  cdCanvas* cnv = cdCreateCanvas(CD_PDF, "pplot.pdf -o");
-  //  IupPlotPaintTo(plot[ii], cnv);
-  //  cdKillCanvas(cnv);
+  /* This button is captioned "Export PDF" but its body had been repurposed for testing: it
+     set CLEAR=Yes, which removes every dataset from the plot, and the three lines that
+     actually write the PDF were commented out. Clicking it emptied the plot instead of
+     exporting anything. */
+  cnv = cdCreateCanvas(CD_PDF, "pplot.pdf -o");
+  if (!cnv)
+    return IUP_DEFAULT;
+
+  IupPlotPaintTo(plot[ii], cnv);
+  cdKillCanvas(cnv);
   return IUP_DEFAULT;
 }
 
