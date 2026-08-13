@@ -29,9 +29,36 @@ A related trap: `-cacheDisplayInRect:` does **not** render `NSTextField`, `NSBut
 not use a capture to prove text or a push button is wrong. Custom-drawn views (`IupCanvas`,
 `IupMatrix`, `IupCells`, `IupPlot`) and `NSImageView` do capture correctly.
 
+## Finding what the driver does not actually register
+
+    ./audit_disabled.py          # controls with findings
+    ./audit_disabled.py --all    # every paired control
+
+Grepping the driver for `iupClassRegisterAttribute` is misleading in **both** directions,
+because this backend arrived with large parts wrapped in `#if 0`. Twice the *only*
+registration of an attribute was inside such a block — `IupDialog`'s `BGCOLOR` and
+`IupText`'s `TABSIZE`/`PADDING`/`OVERWRITE` — and both looked present to grep. The dialog one
+cost real time: a getter added to the line grep found changed nothing, because that line was
+the dead copy.
+
+So the script strips `#if 0` regions (honouring nesting) from the Cocoa and GTK drivers and
+diffs what survives. It reports three things: registrations that exist *only* inside a dead
+block, attributes GTK registers and this driver does not, and attributes registered here with
+neither getter nor setter where GTK has a real handler.
+
+It deliberately does **not** report: attributes the shared `iupBaseRegisterCommonAttrib`
+already provides (GTK re-registers several, like `FONT`, purely to specialise them);
+X11/Windows handle attributes; anything either driver marks `IUPAF_NOT_SUPPORTED`, since that
+flag is the documented way to declare a known absence; and the cases listed in `ACKNOWLEDGED`,
+which are printed with their reason so the decision stays visible.
+
+Those exclusions matter — without them the first run reported 31 findings, of which more than
+half were noise.
+
 ## Layout
 
     probe.m          injected via DYLD_INSERT_LIBRARIES; verifies any sample without modifying it
+    audit_disabled.py  diffs live registrations against the GTK driver
     build_apps.sh    builds a directory of sample .c files as .app bundles
     sweep.sh         runs every built sample under the probe and reports pass/fail
     run_parity.sh    builds and runs the per-control parity harnesses

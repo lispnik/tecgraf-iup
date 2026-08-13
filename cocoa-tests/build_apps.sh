@@ -66,6 +66,11 @@ void* cdContextPrinter(void) { return 0; }
    context, which is what the callers check, so those two export formats are simply unavailable. */
 void* cdContextCGM(void) { return 0; }
 void* cdContextPS(void) { return 0; }
+
+/* cdInitContextPlus enables CD's anti-aliased "Plus" contexts, which the macOS libcd does
+   not ship. The samples that call it (canvas1, canvas_scrollbar2/3) only use it to opt into
+   nicer rendering, so a no-op leaves them on the regular contexts. */
+void cdInitContextPlus(void) { }
 STUB
     clang -c -o "$CDSTUB" "$FW/extra/sample_link_stubs.c" || exit 1
   fi
@@ -84,15 +89,13 @@ companion() {
     flatlist)           echo list ;;
     flatsample)         echo sample ;;
     flattree)           echo tree ;;
-    canvas_scrollbar2)  echo canvas_scrollbar ;;
-    canvas_scrollbar3)  echo canvas_scrollbar ;;
     dial)               echo dial_led ;;
     webbrowser_editor)  echo rt_editor_images ;;
     *)                  echo "" ;;
   esac
 }
 
-ok=0; fail=0
+ok=0; fail=0; skipped=0
 for src in "$SRCDIR"/*.c; do
   [ -e "$src" ] || continue
   name=$(basename "$src" .c)
@@ -121,14 +124,29 @@ PLIST
     clang -c -DBIG_TEST $CFLAGS "$SRCDIR/$comp.c" -o "$LOG/$comp.big.o" >> "$LOG/$name.log" 2>&1
     extra="$LOG/$comp.big.o"
   fi
+  # Some files in these directories are not programs: dial_led.c and rt_editor_images.c are
+  # include-fragments (a LED description and an image resource table), and bigtest.c is a
+  # driver that needs every sibling compiled with -DBIG_TEST. Building every .c in the
+  # directory turns those into "failures" that no amount of backend work can fix, which
+  # inflates the failure count and hides real ones. Detect them by the only symptom that
+  # actually distinguishes them -- a link that fails solely because there is no main -- so
+  # nothing has to be hardcoded.
   if clang $CFLAGS $CFLAGS_EXTRA -o "$app/Contents/MacOS/$name" "$src" $extra $LDFLAGS > "$LOG/$name.log" 2>&1; then
     # Samples that load images look for them next to the executable.
     for res in "$SRCDIR"/*.png "$SRCDIR"/*.jpg "$SRCDIR"/*.bmp "$SRCDIR"/*.gif "$SRCDIR"/*.xbm "$SRCDIR"/*.led "$SRCDIR"/*.pts; do
       [ -e "$res" ] && cp "$res" "$app/Contents/MacOS/" 2>/dev/null
     done
     ok=$((ok+1)); echo "$name" >> "$OUT/_ok.txt"
+  elif [ "$(grep -cE '^ +"_' "$LOG/$name.log")" = "1" ] \
+       && grep -q '"_main", referenced from' "$LOG/$name.log"; then
+    rm -rf "$app"
+    skipped=$((skipped+1)); echo "$name" >> "$OUT/_skipped.txt"
   else
     fail=$((fail+1)); rm -rf "$app"; echo "$name" >> "$OUT/_fail.txt"
   fi
 done
-echo "built=$ok failed=$fail  -> $OUT"
+if [ "$skipped" -gt 0 ]; then
+  echo "built=$ok failed=$fail skipped=$skipped (not standalone programs: $(tr '\n' ' ' < "$OUT/_skipped.txt"))  -> $OUT"
+else
+  echo "built=$ok failed=$fail  -> $OUT"
+fi

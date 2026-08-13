@@ -43,14 +43,34 @@ status=0
 for dir in "${DIRS[@]}"; do
   [ -d "$dir" ] || continue
   set_name=$(basename "$dir")
+  # Count against the apps that were LAUNCHED, not against the results that came back. An app
+  # that dies before the probe reports produces no RESULT line at all, so counting results
+  # against results quietly lowers the denominator and the run still reads as clean -- which
+  # is how a crash in text.app during IupMap once showed up as a harmless "74/74".
+  launched=$(ls -d "$dir"/*.app 2>/dev/null | wc -l | tr -d ' ')
   total=$(cat "$LOGDIR/$set_name."*.log 2>/dev/null | grep -c RESULT)
   passed=$(cat "$LOGDIR/$set_name."*.log 2>/dev/null | grep -c 'verdict=PASS')
-  printf '%-16s %s/%s\n' "$set_name:" "$passed" "$total"
-  [ "$passed" = "$total" ] || status=1
+  printf '%-16s %s/%s\n' "$set_name:" "$passed" "$launched"
+  [ "$passed" = "$launched" ] || status=1
+
+  if [ "$total" != "$launched" ]; then
+    for app in "$dir"/*.app; do
+      [ -e "$app" ] || continue
+      app_name=$(basename "$app" .app)
+      grep -q RESULT "$LOGDIR/$set_name.$app_name.log" 2>/dev/null \
+        || echo "  NO RESULT (died before reporting): $app_name"
+    done
+  fi
 done
 
-if ! cat "$LOGDIR"/*.log 2>/dev/null | grep RESULT | grep -v 'verdict=PASS'; then
+cat "$LOGDIR"/*.log 2>/dev/null | grep RESULT | grep -v 'verdict=PASS'
+# Report against $status, not against the presence of failing RESULT lines: an app that never
+# reported has no RESULT line to fail, and saying "no failures" there is the exact blind spot
+# the per-set NO RESULT listing above exists to close.
+if [ "$status" = "0" ]; then
   echo "no failures"
+else
+  echo "FAILURES (see above)"
 fi
 rm -rf "$LOGDIR"
 exit $status
