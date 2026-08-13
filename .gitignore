@@ -27,3 +27,5 @@ cocoa-tests/probe.dylib
 *.xcuserdatad
 
 
+__pycache__/
+*.pyc
