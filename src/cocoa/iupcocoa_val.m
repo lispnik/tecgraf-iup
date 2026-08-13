@@ -180,7 +180,11 @@ static int cocoaValSetMaxAttrib(Ihandle* ih, const char* value)
 		
 		// Not going to bounds check in case the user is trying to change both max and min which could cross into an invalid state
 		
-		ih->data->val = new_value;
+		/* This assigned ih->data->val -- the CURRENT value -- instead of vmax. The getters read
+		   vmin/vmax, and cocoaValSetValueAttrib clamps against them, so setting MIN/MAX left
+		   the bounds at their 0..1 defaults: VALUE=25 on a 10..50 slider clamped to 1 and the
+		   slider then pinned that to its own minimum, landing on 10. */
+		ih->data->vmax = new_value;
 		
 		[the_slider setMaxValue:new_value];
 	}
@@ -201,7 +205,8 @@ static int cocoaValSetMinAttrib(Ihandle* ih, const char* value)
 		
 		// Not going to bounds check in case the user is trying to change both max and min which could cross into an invalid state
 		
-		ih->data->val = new_value;
+		/* See cocoaValSetMaxAttrib: this is the minimum, not the current value. */
+		ih->data->vmin = new_value;
 		
 		[the_slider setMinValue:new_value];
 	}

@@ -60,11 +60,27 @@ REGISTER = re.compile(
 
 
 def strip_if0(path):
-    """Remove #if 0 ... #endif regions, tracking nested conditionals."""
+    """Remove regions the preprocessor discards, tracking nested conditionals.
+
+    That means #if 0, and also #if MACRO where the file defines MACRO as 0 -- which is not a
+    hypothetical: IupTabs gates TABTIP behind "#define IUPCOCOA_ENABLE_TABTIP 0", so the
+    registration is compiled out while looking perfectly live. Missing that made this script
+    report TABTIP as implemented when setting it did nothing at all.
+    """
     if not os.path.exists(path):
         return None
+
+    text = open(path, errors='replace').read()
+    zero_macros = set(re.findall(r'^\s*#\s*define\s+([A-Za-z_]\w*)\s+0\s*$', text, re.M))
+
+    def is_false(stripped):
+        if re.match(r'#\s*if\s+0\b', stripped):
+            return True
+        m = re.match(r'#\s*if\s+([A-Za-z_]\w*)\s*$', stripped)
+        return bool(m) and m.group(1) in zero_macros
+
     out, depth = [], 0
-    for line in open(path, errors='replace'):
+    for line in text.splitlines(keepends=True):
         stripped = line.strip()
         if depth:
             if re.match(r'#\s*if', stripped):
@@ -72,7 +88,7 @@ def strip_if0(path):
             elif re.match(r'#\s*endif', stripped):
                 depth -= 1
             continue
-        if re.match(r'#\s*if\s+0\b', stripped):
+        if is_false(stripped):
             depth = 1
             continue
         out.append(line)
@@ -147,7 +163,7 @@ def main():
 
         print('== %s  (live: %d, gtk: %d)' % (cocoa_name, len(cocoa), len(gtk)))
         if buried:
-            print('   only inside #if 0 : %s' % ' '.join(buried))
+            print('   compiled out     : %s' % ' '.join(buried))
         if missing:
             print('   absent            : %s' % ' '.join(missing))
         if inert:
