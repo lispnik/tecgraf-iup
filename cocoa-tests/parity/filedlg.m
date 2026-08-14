@@ -26,6 +26,19 @@ static int g_gaps = 0;
 static void chk(int c, const char* w, const char* g)
 { printf("%-4s %-56s %s\n", c ? "ok  " : "GAP ", w, g ? g : ""); fflush(stdout); if (!c) g_gaps++; }
 
+/* Accepts whatever save panel is on screen, which is what its Save button amounts to: the
+   panel runs through -runModal, and -ok: is not implemented on modern AppKit. */
+static void accept_save_panel(void)
+{
+  for (NSWindow* w in [NSApp windows])
+    if ([w isKindOfClass:[NSSavePanel class]])
+    {
+      [NSApp stopModalWithCode:NSModalResponseOK];
+      return;
+    }
+  [NSApp stopModalWithCode:NSModalResponseCancel];
+}
+
 static NSArray* urls(NSArray* paths)
 {
   NSMutableArray* a = [NSMutableArray array];
@@ -92,6 +105,43 @@ int main(int argc, char** argv)
   { char* value = IupGetAttribute(dlg, "VALUE");
     snprintf(buf, sizeof buf, "VALUE=%s", value ? value : "(null)");
     chk(value == NULL, "an empty selection leaves no VALUE behind", buf); }
+
+  /* ---- a save dialog has to actually appear ----
+     The SAVE branch of the driver used to set the dialog type and nothing else, leaving the
+     panel nil. Messages to nil do nothing and return zero, so no panel was shown, -runModal
+     "returned" 0, and the driver reported a cancel -- every Save As in every application
+     silently did nothing, which is how this was found in ImLab. */
+  { Ihandle* save = IupFileDlg();
+    const char* wanted = "/tmp/iup_filedlg_harness_save.png";
+
+    remove(wanted);
+    IupSetAttribute(save, "DIALOGTYPE", "SAVE");
+    IupSetAttribute(save, "TITLE", "harness save");
+    IupSetAttribute(save, "FILE", "iup_filedlg_harness_save.png");
+    IupSetAttribute(save, "DIRECTORY", "/tmp");
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ accept_save_panel(); });
+
+    IupPopup(save, IUP_CENTER, IUP_CENTER);
+
+    { char* value = IupGetAttribute(save, "VALUE");
+      snprintf(buf, sizeof buf, "VALUE=%s", value ? value : "(null)");
+      chk(value != NULL, "a SAVE dialog returns a name rather than reporting a cancel", buf);
+      chk(value && NULL != strstr(value, "iup_filedlg_harness_save.png"),
+          "...the name that was asked for", buf); }
+
+    { int status = IupGetInt(save, "STATUS");
+      snprintf(buf, sizeof buf, "STATUS=%d (1 = new file)", status);
+      chk(status == 1, "STATUS says whether the file already existed", buf); }
+
+    /* DIRECTORY is a filesystem path, and setting it used to go through URLWithString, which
+       silently produced nothing usable -- so the panel ignored where it was told to open. */
+    { char* dir = IupGetAttribute(save, "DIRECTORY");
+      snprintf(buf, sizeof buf, "DIRECTORY=%s", dir ? dir : "(null)");
+      chk(dir && NULL != strstr(dir, "tmp"), "DIRECTORY reaches the panel", buf); }
+
+    IupDestroy(save); }
 
   /* ---- the attribute set the application reads is registered ---- */
   { IupSetAttribute(dlg, "DIALOGTYPE", "OPEN");

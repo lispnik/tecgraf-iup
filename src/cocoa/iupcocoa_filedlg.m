@@ -107,6 +107,14 @@ static void macFileDlgGetFolder(Ihandle *ih)
 	}
 	
 	
+	/* Only a file URL has resource properties. Handed anything else -- and the panel does hand
+	   over entries that are not on disk -- CFURLCopyResourcePropertyForKey logs
+	   "passed a URL which has no scheme" and fails, so ask first. */
+	if(![file_url isFileURL])
+	{
+		return YES;
+	}
+
 	// Check if the URL points to a directory.
 	// We want to say yes to directories otherwise the user can't click on them to change directories.
 	NSNumber* is_directory = nil;
@@ -283,6 +291,20 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
   if (iupStrEqualNoCase(value, "SAVE"))
   {
     dialogtype = IUP_DIALOGSAVE;
+
+	/* This branch used to set the type and nothing else, leaving file_panel nil. Objective-C
+	   messages to nil are no-ops returning zero, so no panel appeared, -runModal "returned" 0,
+	   and since that is not NSModalResponseOK the code below reported the dialog as cancelled.
+	   Every save dialog in every application silently did nothing. */
+	NSSavePanel* save_panel = [NSSavePanel savePanel];
+	[save_panel setCanCreateDirectories:YES];
+
+	/* The panel appends the extension of the chosen file type on its own, and CD and IM decide
+	   the format from the name the caller asked for, so let the name stand as typed. */
+	[save_panel setAllowsOtherFileTypes:YES];
+	[save_panel setExtensionHidden:NO];
+
+	file_panel = save_panel;
   }
   else if (iupStrEqualNoCase(value, "DIR"))
   {
@@ -355,8 +377,11 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
 	value = iupAttribGet(ih, "DIRECTORY");
 	if(value && 0!=*value)
 	{
+		/* fileURLWithPath, not URLWithString: the attribute is a filesystem path, and
+		   URLWithString wants a URL string -- given "/Users/me/pictures" it produces a URL with
+		   no scheme, which the panel ignores, so DIRECTORY never had any effect. */
 		NSString* ns_string = iupCocoaStringFromCStr(value);
-		NSURL* ns_url = [NSURL URLWithString:ns_string];
+		NSURL* ns_url = [NSURL fileURLWithPath:ns_string];
 		[file_panel setDirectoryURL:ns_url];
 	}
 
