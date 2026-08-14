@@ -191,6 +191,69 @@ static void macFileDlgGetFolder(Ihandle *ih)
 
 
 
+/* Builds VALUE, DIRECTORY and the MULTIVALUE family from a selection, in the shape IUP
+   documents for MULTIPLEFILES:
+
+     "/tecgraf/iup/test|a.txt|b.txt|"   more than one file: directory, then bare names
+     "/tecgraf/iup/test/a.txt"          exactly one file: the full path, no separators
+
+   This is separate from the panel so it can be tested without running one -- it used to return
+   full paths joined by '|' in every case, including a lone file with a trailing '|', so an
+   application parsing it the documented way took the first path to be the directory and then
+   found no file names at all. ImLab's File>Open opened nothing and said nothing. */
+IUP_SDK_API void iupCocoaFileDlgSetMultiValue(Ihandle* ih, NSArray* array_of_urls)
+{
+	NSUInteger url_count = [array_of_urls count];
+	NSURL* first_url;
+	NSString* directory;
+	NSMutableString* joined;
+	NSUInteger i;
+	int want_full_paths = iupAttribGetBoolean(ih, "MULTIVALUEPATH");
+
+	if(0 == url_count)
+	{
+		iupAttribSetStr(ih, "VALUE", NULL);
+		iupAttribSetInt(ih, "MULTIVALUECOUNT", 0);
+		return;
+	}
+
+	first_url = [array_of_urls objectAtIndex:0];
+	directory = [[first_url path] stringByDeletingLastPathComponent];
+	joined = [NSMutableString string];
+
+	if(url_count > 1)
+	{
+		[joined appendFormat:@"%@|", directory];
+		for(NSURL* a_url in array_of_urls)
+		{
+			/* MULTIVALUEPATH asks for full paths, which matters when the selection spans
+			   folders -- possible here through the Recent Files list, as it is on GTK. */
+			if(want_full_paths)
+				[joined appendFormat:@"%@|", [a_url path]];
+			else
+				[joined appendFormat:@"%@|", [[a_url path] lastPathComponent]];
+		}
+	}
+	else
+	{
+		[joined appendString:[first_url path]];
+	}
+
+	iupAttribSetStr(ih, "VALUE", [joined UTF8String]);
+	iupAttribSetStr(ih, "DIRECTORY", [directory UTF8String]);
+
+	/* MULTIVALUEid: id 0 is the directory, then one per file, so the count includes the
+	   directory and a single file gives 2. */
+	iupAttribSetStrId(ih, "MULTIVALUE", 0, [directory UTF8String]);
+	for(i = 0; i < url_count; i++)
+	{
+		NSURL* a_url = [array_of_urls objectAtIndex:i];
+		NSString* entry = want_full_paths ? [a_url path] : [[a_url path] lastPathComponent];
+		iupAttribSetStrId(ih, "MULTIVALUE", (int)(i + 1), [entry UTF8String]);
+	}
+	iupAttribSetInt(ih, "MULTIVALUECOUNT", (int)(url_count + 1));
+}
+
 static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
 {
 
@@ -412,9 +475,10 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
 	
 	if(ret_val == NSModalResponseOK)
 	{
-		
-		// Slightly different things for save vs open, so let's split them up
-		if(iupStrEqualNoCase(value, "SAVE"))
+		/* Note: `value` at this point holds whatever attribute was read last (PARENTDIALOG),
+		   which is why the branches below test `dialogtype` -- the parsed DIALOGTYPE -- rather
+		   than comparing that stale string against "SAVE" as this code used to. */
+		if(IUP_DIALOGSAVE == dialogtype)
 		{
 			NSURL* ns_url = [file_panel URL];
 
@@ -423,54 +487,66 @@ static int cocoaFileDlgPopup(Ihandle *ih, int x, int y)
 			if([[NSFileManager defaultManager] fileExistsAtPath:[ns_url path]])
 			{
 				iupAttribSetInt(ih, "STATUS", 0);
-				// TODO: maybe not set DIALOGTYPE=DIR or MULTIPLEFILES=YES
 				iupAttribSetInt(ih, "FILEEXIST", 1);
-
-				
 			}
 			else
 			{
 				iupAttribSetInt(ih, "STATUS", 1);
-				// TODO: maybe not set DIALOGTYPE=DIR or MULTIPLEFILES=YES
 				iupAttribSetInt(ih, "FILEEXIST", 0);
 			}
-			
-			iupAttribSetStr(ih, "VALUE", [[[file_panel URL] path] UTF8String]);
-			
+
+			iupAttribSetStr(ih, "VALUE", [[ns_url path] UTF8String]);
+
+			{
+				char* dir = iupStrFileGetPath([[ns_url path] UTF8String]);
+				iupAttribSetStr(ih, "DIRECTORY", dir);
+				free(dir);
+			}
 		}
 		else
 		{
-			if(iupAttribGetBoolean(ih, "MULTIPLEFILES") && !iupStrEqualNoCase(value, "SAVE"))
-			{
-				NSArray* array_of_urls = [(NSOpenPanel*)file_panel URLs];
-				
-				 
-				NSMutableArray* array_of_strings = [NSMutableArray arrayWithCapacity:[array_of_urls count]];
-				
-				// TODO: implement MULTIVALUEid
-				for(NSURL* a_url in array_of_urls)
-				{
-					[array_of_strings addObject:[a_url path]];
-				}
-				NSString* joined_path = [array_of_strings componentsJoinedByString:@"|"];
-				joined_path = [joined_path stringByAppendingString:@"|"];
+			NSArray* array_of_urls = [(NSOpenPanel*)file_panel URLs];
+			NSURL* first_url = ([array_of_urls count] > 0) ? [array_of_urls objectAtIndex:0] : [file_panel URL];
 
-				// Should this be fileSystemRepresentation? Not sure it will work with the | separators.
-				iupAttribSetStr(ih, "VALUE", [joined_path UTF8String]);
-				iupAttribSetInt(ih, "MULTIVALUECOUNT", (int)[array_of_urls count]);
-				
+			if(nil == first_url)
+			{
+				iupAttribSetStr(ih, "VALUE", NULL);
+				iupAttribSetInt(ih, "STATUS", -1);
+				[panel_delegate release];
+				return IUP_NOERROR;
+			}
+
+			/* Whether the file exists is what STATUS reports for an open dialog, and it was
+			   never set here at all -- callers reading it saw whatever an unset attribute
+			   returns rather than an answer. */
+			if([[NSFileManager defaultManager] fileExistsAtPath:[first_url path]])
+			{
+				iupAttribSetInt(ih, "STATUS", 0);
+				iupAttribSetInt(ih, "FILEEXIST", 1);
 			}
 			else
 			{
-				// Not using fileSystemRepresentation to be consistent with above
-				iupAttribSetStr(ih, "VALUE", [[[file_panel URL] path] UTF8String]);
-				
+				iupAttribSetInt(ih, "STATUS", 1);
+				iupAttribSetInt(ih, "FILEEXIST", 0);
 			}
-			
-			
+
+			if(iupAttribGetBoolean(ih, "MULTIPLEFILES") && (IUP_DIALOGDIR != dialogtype))
+			{
+				iupCocoaFileDlgSetMultiValue(ih, array_of_urls);
+			}
+			else
+			{
+				iupAttribSetStr(ih, "VALUE", [[first_url path] UTF8String]);
+
+				{
+					char* dir = iupStrFileGetPath([[first_url path] UTF8String]);
+					iupAttribSetStr(ih, "DIRECTORY", dir);
+					free(dir);
+				}
+			}
+
 			// TODO: FILTERUSED
 			iupAttribSetStr(ih, "FILTERUSED", NULL);
-
 		}
 	}
 	else // user cancelled

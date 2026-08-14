@@ -211,4 +211,11 @@ gboolean iupmacDialogDeleteEvent(GtkWidget *widget, GdkEvent *evt, Ihandle *ih);
 }
 #endif
 
+
+/* File dialog: builds VALUE/DIRECTORY/MULTIVALUE from a selection, in the shape IUP documents
+   for MULTIPLEFILES. Exposed so it can be tested without running a modal panel. */
+#ifdef __OBJC__
+IUP_SDK_API void iupCocoaFileDlgSetMultiValue(Ihandle* ih, NSArray* array_of_urls);
+#endif
+
 #endif

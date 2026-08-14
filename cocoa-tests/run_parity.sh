@@ -21,7 +21,7 @@ fi
 
 NAMES=("$@")
 if [ ${#NAMES[@]} -eq 0 ]; then
-  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity plotexport)
+  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity plotexport filedlg)
 fi
 
 status=0
@@ -32,6 +32,10 @@ for name in "${NAMES[@]}"; do
   # IupPlot ships as a static archive built by build_apps.sh rather than as a framework, so the
   # one harness that needs it says so here instead of every harness paying for it.
   EXTRA=()
+  if [ "$name" = filedlg ]; then
+    EXTRA=(-I"$IUP/src/cocoa")
+  fi
+
   if [ "$name" = plotexport ]; then
     PLOTLIB=$FW/extra/plot/libiup_plot.a
     if [ ! -e "$PLOTLIB" ]; then
