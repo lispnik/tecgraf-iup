@@ -1,4 +1,4 @@
-/* IupPlot's PDF export on Cocoa.
+/* IupPlot's file export on Cocoa.
  *
  * Two things are asserted, and neither is "IupGetAttribute agreed with itself":
  *
@@ -21,6 +21,9 @@
 #include "iup_object.h"   /* ih->handle: the native NSMenu behind the Ihandle */
 #include <cd.h>
 #include <cdpdf.h>
+#include <cdps.h>
+#include <cdcgm.h>
+#include <cdirgb.h>
 
 static int g_gaps = 0;
 static Ihandle *dlg, *plot;
@@ -72,7 +75,9 @@ static int menucontext_cb(Ihandle* ih, Ihandle* menu, int x, int y)
       char buf[512];
       snprintf(buf, sizeof buf, "items=%s", [menu_titles(nsmenu) UTF8String]);
       chk(menu_has_item(nsmenu, @"PDF..."), "the plot context menu offers PDF export", buf);
-      chk(menu_has_item(nsmenu, @"EPS..."), "...alongside the formats that were already there", NULL);
+      chk(menu_has_item(nsmenu, @"EPS...") && menu_has_item(nsmenu, @"SVG...") &&
+          menu_has_item(nsmenu, @"CGM..."),
+          "...alongside SVG, EPS and CGM", NULL);
       g_tracked = nsmenu;
       [nsmenu cancelTracking];
     }
@@ -176,6 +181,107 @@ static void export_and_check(void)
   CGPDFDocumentRelease(doc);
 }
 
+/* ------------------------------------------------- the other formats ---- */
+
+static char* slurp(const char* path, long* size)
+{
+  FILE* f = fopen(path, "rb");
+  char* buf;
+  long n;
+  *size = 0;
+  if (!f) return NULL;
+  fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET);
+  if (n <= 0) { fclose(f); return NULL; }
+  buf = (char*)malloc((size_t)n + 1);
+  if (fread(buf, 1, (size_t)n, f) != (size_t)n) { free(buf); fclose(f); return NULL; }
+  buf[n] = 0; fclose(f); *size = n;
+  return buf;
+}
+
+/* EPS and CGM export were dead on this platform for a different reason than PDF: cdps.c and
+   cdcgm.c are portable C sitting in CD's source tree, but were in no CMake source list, so the
+   library exported no cdContextPS or cdContextCGM and these menu items produced nothing. */
+static void export_eps(void)
+{
+  char data[1024], buf[256];
+  const char* path = "/tmp/iup_plotexport_harness.eps";
+  int dpi = IupGetInt(NULL, "SCREENDPI");
+  cdCanvas* cnv;
+  char* text;
+  long size;
+
+  remove(path);
+  sprintf(data, "%s -e -s%d", path, dpi);      /* the string iPlotExportEPS_CB builds */
+  cnv = cdCreateCanvas(CD_PS, data);
+  chk(cnv != NULL, "CD has a PostScript driver (src/drv/cdps.c is in the build)", NULL);
+  if (!cnv) return;
+
+  IupPlotPaintTo(plot, cnv);
+  cdKillCanvas(cnv);
+
+  text = slurp(path, &size);
+  chk(text != NULL, "the EPS export wrote a file", NULL);
+  if (!text) return;
+
+  snprintf(buf, sizeof buf, "%ld bytes, starts \"%.14s\"", size, text);
+  chk(strncmp(text, "%!PS-Adobe", 10) == 0, "it carries the PostScript signature", buf);
+  chk(strstr(text, "%%BoundingBox") != NULL, "EPS declares a bounding box, so it can be embedded", NULL);
+  chk(strstr(text, "moveto") != NULL && strstr(text, "lineto") != NULL,
+      "the plot was drawn as PostScript paths", NULL);
+  free(text);
+}
+
+/* CGM gets the strongest check available: CD replays the file it just wrote. */
+static void export_cgm(void)
+{
+  char data[1024], buf[256];
+  const char* path = "/tmp/iup_plotexport_harness.cgm";
+  const int side = 300;
+  cdCanvas* cnv;
+  cdCanvas* bitmap;
+  unsigned char *r, *g, *b;
+  int i, ink = 0, played;
+
+  remove(path);
+  /* Exactly what iPlotExportCGM_CB builds. CGM does NOT take the -w/-h/-s options the other
+     drivers use: its grammar is "filename [w_mmxh_mm] [resolution]", and passing the wrong one
+     leaves the canvas at its INT_MAX x INT_MAX default -- whereupon IupPlot dutifully draws
+     axis ticks across two billion pixels and appears to hang. */
+  { int w = 0, h = 0;
+    double res, w_mm, h_mm;
+    IupGetIntInt(plot, "DRAWSIZE", &w, &h);
+    res = (double)IupGetInt(NULL, "SCREENDPI") / 25.4;
+    w_mm = w / res; h_mm = h / res;
+    sprintf(data, "%s %gx%g %g", path, w_mm, h_mm, res); }
+  cnv = cdCreateCanvas(CD_CGM, data);
+  chk(cnv != NULL, "CD has a CGM driver (src/drv/cdcgm.c is in the build)", NULL);
+  if (!cnv) return;
+
+  IupPlotPaintTo(plot, cnv);
+  cdKillCanvas(cnv);
+
+  r = (unsigned char*)malloc((size_t)side * side);
+  g = (unsigned char*)malloc((size_t)side * side);
+  b = (unsigned char*)malloc((size_t)side * side);
+  memset(r, 255, (size_t)side * side);
+  memset(g, 255, (size_t)side * side);
+  memset(b, 255, (size_t)side * side);
+
+  sprintf(data, "%dx%d %p %p %p", side, side, r, g, b);
+  bitmap = cdCreateCanvas(CD_IMAGERGB, data);
+  played = bitmap ? cdCanvasPlay(bitmap, CD_CGM, 0, 0, 0, 0, (void*)path) : CD_ERROR;
+  chk(played == CD_OK, "CD can replay the CGM it just wrote", NULL);
+
+  for (i = 0; i < side * side; i++)
+    if (r[i] != 255 || g[i] != 255 || b[i] != 255) ink++;
+
+  snprintf(buf, sizeof buf, "%d non-white pixels after playback", ink);
+  chk(ink > 100, "the replayed plot puts ink on the page", buf);
+
+  if (bitmap) cdKillCanvas(bitmap);
+  free(r); free(g); free(b);
+}
+
 /* ----------------------------------------------------------------- run ---- */
 
 static int run(Ihandle* t)
@@ -184,6 +290,8 @@ static int run(Ihandle* t)
   IupSetAttribute(t, "RUN", "NO");
 
   export_and_check();
+  export_eps();
+  export_cgm();
 
   /* Now the menu. Driving BUTTON_CB is what the canvas itself does on a right click, so this
      goes through iupPlotShowMenuContext exactly as a user would. */
