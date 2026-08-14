@@ -82,12 +82,13 @@ the failure mode this backend had.
   inner-inset API (its cell owns that geometry), so only the natural size grows — which is
   also all GTK does there, since it sets an outer widget margin rather than an inner one.
   Multiline gets a real inset via `-setTextContainerInset:`.
-- **CD has no printer driver on macOS.** `cdContextPrinter` and `cdInitContextPlus` are the
-  only two symbols `cocoa-tests/build_apps.sh` still stubs, so the samples cannot print.
-  Export formats are no longer in this list: **PDF** is implemented natively on CGPDFContext
-  (`src/quartz/cdquartzpdf.c` in tecgraf-cd) and needs no PDFlib, and **PS/EPS, CGM, DXF and
-  DGN** were portable drivers sitting unbuilt in `src/drv` — they are now in the CD build, so
-  IupPlot's export menu works for every format it offers.
+- **CD's "Plus" contexts are not built**, so `cdInitContextPlus` is the one symbol
+  `cocoa-tests/build_apps.sh` still stubs; samples that ask for the anti-aliased contexts get
+  the plain ones. Printing and export are no longer in this list: **CD_PRINTER** is implemented
+  on Quartz (`src/quartz/cdquartzprn.m`, spooling through PDF to `NSPrintOperation`), **PDF** is
+  native on CGPDFContext with no PDFlib, and **PS/EPS, CGM, DXF and DGN** were portable drivers
+  sitting unbuilt in `src/drv` and are now in the CD build. IupPlot's export menu and its
+  Print… item all work.
 - **MathGL and Scintilla** are not built, so `mglplot`, `mathglsamples`, `mgllabel` and
   `scintilla` do not build.
 - **Menu accelerators map `Ctrl` to the literal Control key**, not Command. An application

@@ -24,6 +24,7 @@
 #include <cdps.h>
 #include <cdcgm.h>
 #include <cdirgb.h>
+#include <cdprint.h>
 
 static int g_gaps = 0;
 static Ihandle *dlg, *plot;
@@ -78,6 +79,7 @@ static int menucontext_cb(Ihandle* ih, Ihandle* menu, int x, int y)
       chk(menu_has_item(nsmenu, @"EPS...") && menu_has_item(nsmenu, @"SVG...") &&
           menu_has_item(nsmenu, @"CGM..."),
           "...alongside SVG, EPS and CGM", NULL);
+      chk(menu_has_item(nsmenu, @"Print..."), "and the menu offers printing", NULL);
       g_tracked = nsmenu;
       [nsmenu cancelTracking];
     }
@@ -282,6 +284,52 @@ static void export_cgm(void)
   free(r); free(g); free(b);
 }
 
+/* Printing. The job is redirected to a file rather than to hardware -- NSPrintSaveJob is a
+   documented print destination, and the driver copies the shared NSPrintInfo, so this exercises
+   the whole path including NSPrintOperation's pagination without anything reaching a printer.
+   No "-d" either: that would put a modal print panel on the user's screen. */
+static void export_print(void)
+{
+  NSString* path = @"/tmp/iup_plotexport_harness_print.pdf";
+  NSPrintInfo* info = [NSPrintInfo sharedPrintInfo];
+  CGPDFDocumentRef doc;
+  CGPDFPageRef page;
+  cdCanvas* cnv;
+  char buf[256];
+
+  [[NSFileManager defaultManager] removeItemAtPath:path error:NULL];
+  [info setJobDisposition:NSPrintSaveJob];
+  [[info dictionary] setObject:[NSURL fileURLWithPath:path] forKey:NSPrintJobSavingURL];
+
+  cnv = cdCreateCanvas(CD_PRINTER, (void*)"Plot");
+  chk(cnv != NULL, "CD has a printer driver (cdContextPrinter is not a stub)", NULL);
+  if (!cnv)
+    return;
+
+  { int w = 0, h = 0;
+    double w_mm = 0, h_mm = 0;
+    cdCanvasGetSize(cnv, &w, &h, &w_mm, &h_mm);
+    snprintf(buf, sizeof buf, "%dx%d px, %.0fx%.0f mm", w, h, w_mm, h_mm);
+    chk(w_mm > 50 && w_mm < 1000 && h_mm > 50 && h_mm < 1000,
+        "the printer canvas is the size of a sheet of paper", buf); }
+
+  IupPlotPaintTo(plot, cnv);
+  cdKillCanvas(cnv);        /* this is what sends the job */
+
+  doc = open_pdf([path UTF8String]);
+  chk(doc != NULL, "the print job was produced", NULL);
+  if (!doc)
+    return;
+
+  chk(CGPDFDocumentGetNumberOfPages(doc) == 1, "one plot is one printed page", NULL);
+  page = CGPDFDocumentGetPage(doc, 1);
+  { int ink = page_ink(page, CGPDFPageGetBoxRect(page, kCGPDFMediaBox));
+    snprintf(buf, sizeof buf, "%d non-white pixels", ink);
+    chk(ink > 1000, "the plot was drawn onto the printed page", buf); }
+
+  CGPDFDocumentRelease(doc);
+}
+
 /* ----------------------------------------------------------------- run ---- */
 
 static int run(Ihandle* t)
@@ -292,6 +340,7 @@ static int run(Ihandle* t)
   export_and_check();
   export_eps();
   export_cgm();
+  export_print();
 
   /* Now the menu. Driving BUTTON_CB is what the canvas itself does on a right click, so this
      goes through iupPlotShowMenuContext exactly as a user would. */

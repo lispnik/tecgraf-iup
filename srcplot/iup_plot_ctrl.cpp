@@ -284,6 +284,13 @@ static int iPlotPrint_CB(Ihandle* self)
   }
   else
     cd_canvas = cdCreateCanvas(CD_PRINTER, (void*)"Plot -d");
+
+  /* "-d" asks for the printer dialog, and a NULL canvas is how CD reports that the user
+     cancelled it -- a path that could not be reached here until macOS gained a printer driver,
+     because cdContextPrinter was always NULL. */
+  if (!cd_canvas)
+    return IUP_DEFAULT;
+
   IupPlotPaintTo(ih, cd_canvas);
   cdKillCanvas(cd_canvas);
   return IUP_DEFAULT;
