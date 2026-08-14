@@ -83,7 +83,12 @@ the failure mode this backend had.
   also all GTK does there, since it sets an outer widget margin rather than an inner one.
   Multiline gets a real inset via `-setTextContainerInset:`.
 - **CD has no printer driver on macOS**, and no CGM or PS export context. The samples that
-  use them link against stubs and simply cannot print or export to those formats.
+  use them link against stubs and simply cannot print or export to those formats. `cdps.c` and
+  `cdcgm.c` are present in the CD source tree but appear in no CMake source list, so this is
+  unbuilt code rather than missing code. **PDF is no longer in this list**: CD_PDF is
+  implemented natively on CGPDFContext (`src/quartz/cdquartzpdf.c` in tecgraf-cd), needs no
+  PDFlib, and is what the plot samples' Export PDF button and the plot context menu's PDF entry
+  now use.
 - **MathGL and Scintilla** are not built, so `mglplot`, `mathglsamples`, `mgllabel` and
   `scintilla` do not build.
 - **Menu accelerators map `Ctrl` to the literal Control key**, not Command. An application
