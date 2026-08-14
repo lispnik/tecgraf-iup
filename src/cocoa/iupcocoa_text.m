@@ -1354,6 +1354,51 @@ static int cocoaTextSetTabSizeAttrib(Ihandle* ih, const char* value)
 }
 */
 
+/* The attributes to give text being put into an NSTextView: the font, plus the colour the view
+   is meant to draw in.
+
+   The font alone is not enough. NSAttributedString's default foreground is a *static* black --
+   not the dynamic system text colour -- so text written with font-only attributes came out
+   black whatever the appearance, and was unreadable against the dark background of Dark Aqua.
+   It also silently discarded any FGCOLOR the application had set, since setAttributedString:
+   replaces every attribute.
+
+   The typing attributes are the right place to ask: they hold the system colour by default and
+   the application's FGCOLOR once one is set, and they survive the text being replaced. */
+static NSDictionary* cocoaTextViewAttributes(NSTextView* text_view, IupCocoaFont* iup_font)
+{
+	NSMutableDictionary* attributes = [[[iup_font attributeDictionary] mutableCopy] autorelease];
+	NSColor* foreground = [[text_view typingAttributes] objectForKey:NSForegroundColorAttributeName];
+
+	if(!foreground)
+	{
+		foreground = [text_view textColor];
+	}
+	if(!foreground)
+	{
+		foreground = [NSColor textColor];
+	}
+
+	[attributes setObject:foreground forKey:NSForegroundColorAttributeName];
+	return attributes;
+}
+
+/* Same for an NSTextField: an attributed string value overrides -textColor entirely, so the
+   colour has to travel in the attributes or the field falls back to that static black too. */
+static NSDictionary* cocoaTextFieldAttributes(NSTextField* text_field, IupCocoaFont* iup_font)
+{
+	NSMutableDictionary* attributes = [[[iup_font attributeDictionary] mutableCopy] autorelease];
+	NSColor* foreground = [text_field textColor];
+
+	if(!foreground)
+	{
+		foreground = [NSColor controlTextColor];
+	}
+
+	[attributes setObject:foreground forKey:NSForegroundColorAttributeName];
+	return attributes;
+}
+
 static int cocoaTextSetValueAttrib(Ihandle* ih, const char* value)
 {
 	NSString* ns_string;
@@ -1381,7 +1426,7 @@ static int cocoaTextSetValueAttrib(Ihandle* ih, const char* value)
 			[text_storage beginEditing];
 			
 			
-			NSAttributedString* attributed_string = [[NSAttributedString alloc] initWithString:ns_string attributes:[iup_font attributeDictionary]];
+			NSAttributedString* attributed_string = [[NSAttributedString alloc] initWithString:ns_string attributes:cocoaTextViewAttributes(text_view, iup_font)];
 			[attributed_string autorelease];
 			
 			
@@ -1406,7 +1451,7 @@ static int cocoaTextSetValueAttrib(Ihandle* ih, const char* value)
 			IupCocoaFont* iup_font = iupCocoaGetFont(ih);
 			if([iup_font usesAttributes])
 			{
-				NSAttributedString* attributed_string = [[NSAttributedString alloc] initWithString:ns_string attributes:[iup_font attributeDictionary]];
+				NSAttributedString* attributed_string = [[NSAttributedString alloc] initWithString:ns_string attributes:cocoaTextFieldAttributes(text_field, iup_font)];
 				[text_field setAttributedStringValue:attributed_string];
 				[attributed_string release];
 			
@@ -1641,8 +1686,9 @@ static int cocoaTextSetFgColorAttrib(Ihandle* ih, const char* value)
 			}
 			else
 			{
-				NSColor* the_color = [NSColor textBackgroundColor];
-				[text_view setTextColor:the_color];
+				/* Restore the system text colour -- this used to hand setTextColor: the
+				   *background* colour, which painted the text out of existence. */
+				[text_view setTextColor:[NSColor textColor]];
 			}
 	
 			
@@ -5430,7 +5476,11 @@ static int cocoaTextSetAppendAttrib(Ihandle* ih, const char* value)
 	  NSDictionary<NSAttributedStringKey, id>* text_storage_attributes = nil;
 	  if(change_range.location == 0)
 	  {
-		  text_storage_attributes = [iup_font attributeDictionary];
+		  /* The first append into an empty view has no preceding character to inherit from, so
+		     it decides the colour for everything that follows -- appending font-only attributes
+		     here left the text with no foreground at all, which draws as a static black
+		     whatever the appearance, and every later append inherited that. */
+		  text_storage_attributes = cocoaTextViewAttributes(text_view, iup_font);
 	  }
 	  else
 	  {
@@ -6352,6 +6402,14 @@ static int cocoaTextMapMethod(Ihandle* ih)
 		// Needed to allow things like Cmd-E (put in search buffer), Cmd-G (find next), and the standard Find panel. Even if you don't want the standard find panel, a broken cmd-e/cmd-g is bad.
 		[text_view setUsesFindPanel:YES];
 		[text_view setAllowsUndo:YES];
+
+		/* An NSTextView with no textColor draws inserted text in the typing attributes, whose
+		   default foreground is a static black -- so in Dark Aqua the text came out black on the
+		   dark background and was unreadable. NSTextField has no such problem, which is why
+		   single-line IupText was fine and multiline was not. Setting the dynamic system colour
+		   explicitly makes it track the appearance, the way every other control here does. */
+		[text_view setTextColor:[NSColor textColor]];
+		[text_view setInsertionPointColor:[NSColor textColor]];
 
 		[scroll_view setDocumentView:text_view];
 		[text_view release];

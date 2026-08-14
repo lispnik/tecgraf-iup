@@ -287,6 +287,45 @@ static int run(Ihandle* t)
         "OVERWRITE does not eat the newline", buf);
     IupSetAttribute(multi, "OVERWRITE", "NO"); }
 
+  /* ---- text colour ----
+     Text put into an NSTextView used to be given font attributes only. NSAttributedString's
+     default foreground is a *static* black, not the dynamic system colour, so on a dark
+     appearance the text was black on a dark background and unreadable -- IUP's own multiline
+     samples, and any application log pane, were affected. The assertions below are appearance
+     independent: the text must carry a foreground attribute at all, and an FGCOLOR the
+     application set must survive the value being replaced. */
+  { NSDictionary* attrs;
+    NSColor* fg;
+
+    IupSetAttribute(multi, "VALUE", "colour check");
+    attrs = [[nv textStorage] attributesAtIndex:0 effectiveRange:NULL];
+    fg = [attrs objectForKey:NSForegroundColorAttributeName];
+    snprintf(buf, sizeof buf, "foreground=%s", fg ? [[fg description] UTF8String] : "(none)");
+    chk(fg != nil, "text in a multiline carries a foreground colour", buf);
+
+    IupSetAttribute(multi, "FGCOLOR", "255 0 0");
+    IupSetAttribute(multi, "VALUE", "still red?");
+    attrs = [[nv textStorage] attributesAtIndex:0 effectiveRange:NULL];
+    fg = [[attrs objectForKey:NSForegroundColorAttributeName]
+            colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+    snprintf(buf, sizeof buf, "after VALUE: (%.2f,%.2f,%.2f)",
+             fg ? [fg redComponent] : -1, fg ? [fg greenComponent] : -1, fg ? [fg blueComponent] : -1);
+    /* channel dominance, not absolute levels: the setter stores a calibrated colour and reading
+       it back through deviceRGB converts, so pure red comes out around (1.00, 0.15, 0.00) */
+    chk(fg != nil && [fg redComponent] > 0.9 && [fg greenComponent] < 0.4 && [fg blueComponent] < 0.4,
+        "FGCOLOR survives the value being replaced", buf);
+
+    /* APPEND into an empty view decides the colour for everything appended after it */
+    IupSetAttribute(multi, "FGCOLOR", NULL);
+    IupSetAttribute(multi, "VALUE", "");
+    IupSetAttribute(multi, "APPEND", "appended line");
+    attrs = [[nv textStorage] attributesAtIndex:0 effectiveRange:NULL];
+    fg = [attrs objectForKey:NSForegroundColorAttributeName];
+    snprintf(buf, sizeof buf, "foreground=%s", fg ? [[fg description] UTF8String] : "(none)");
+    chk(fg != nil, "APPEND into an empty multiline carries a colour too", buf);
+
+    IupSetAttribute(multi, "VALUE", "ABx\nCD"); }
+
   /* ---- spin ---- */
   { NSStepper* stepper = nil;
     for (NSView* sub in [(NSView*)spin->handle subviews])
