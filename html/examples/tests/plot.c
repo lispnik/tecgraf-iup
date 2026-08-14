@@ -894,17 +894,54 @@ static int bt1_cb(Ihandle *self)
 {
   int ii = tabs_get_index();
   cdCanvas* cnv;
+  char filename[1024], data[1200];
+  const char* tmpdir;
 
   /* This button is captioned "Export PDF" but its body had been repurposed for testing: it
      set CLEAR=Yes, which removes every dataset from the plot, and the three lines that
      actually write the PDF were commented out. Clicking it emptied the plot instead of
      exporting anything. */
-  cnv = cdCreateCanvas(CD_PDF, "pplot.pdf -o");
+
+  /* The filename used to be the bare "pplot.pdf", which is relative to the working directory --
+     and LaunchServices gives a bundled application "/" as its working directory, which is not
+     writable. Double-clicking the app therefore made this button silently do nothing, because
+     cdCreateCanvas returns NULL when it cannot open the file. Write somewhere that is writable
+     however the sample was started. */
+  tmpdir = getenv("TMPDIR");
+  if (!tmpdir || !tmpdir[0])
+    tmpdir = "/tmp";
+  sprintf(filename, "%s%spplot.pdf", tmpdir,
+          tmpdir[strlen(tmpdir) - 1] == '/' ? "" : "/");
+  sprintf(data, "%s -o", filename);
+
+  cnv = cdCreateCanvas(CD_PDF, data);
   if (!cnv)
+  {
+    IupMessagef("Export PDF", "Could not write %s.\n\n"
+                "If this build of CD has no PDF driver, CD_PDF is NULL and there is nothing "
+                "to write with.", filename);
     return IUP_DEFAULT;
+  }
 
   IupPlotPaintTo(plot[ii], cnv);
-  cdKillCanvas(cnv);
+  cdKillCanvas(cnv);   /* this is what closes the document and writes the file */
+
+  /* Show the result rather than leaving the user to find it: hand the file to whatever the
+     system has registered for PDF -- Preview on macOS. plot.c is shared across platforms, so
+     each one gets its own launcher. */
+  {
+    char command[1200];
+#ifdef __APPLE__
+    sprintf(command, "open \"%s\"", filename);
+#elif defined(WIN32) || defined(_WIN32)
+    sprintf(command, "start \"\" \"%s\"", filename);
+#else
+    sprintf(command, "xdg-open \"%s\"", filename);
+#endif
+    if (system(command) != 0)
+      IupMessagef("Export PDF", "Wrote %s, but could not open it.", filename);
+  }
+
   return IUP_DEFAULT;
 }
 
