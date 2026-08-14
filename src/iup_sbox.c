@@ -217,6 +217,20 @@ static char* iSboxGetColorAttrib(Ihandle* ih)
   return IupGetAttribute(ih->firstchild, "COLOR");
 }
 
+/* The setter stores the direction in ih->data and returns 0, so nothing was kept in the hash
+   table and there was no getter: reading DIRECTION back always answered with the registered
+   default, whatever had been set. */
+static char* iSboxGetDirectionAttrib(Ihandle* ih)
+{
+  switch (ih->data->direction)
+  {
+    case ISBOX_NORTH: return "NORTH";
+    case ISBOX_SOUTH: return "SOUTH";
+    case ISBOX_WEST:  return "WEST";
+    default:          return "EAST";
+  }
+}
+
 static int iSboxSetDirectionAttrib(Ihandle* ih, const char* value)
 {
   if (ih->handle) /* only before map */
@@ -409,6 +423,34 @@ static void iSboxSetChildrenPositionMethod(Ihandle* ih, int x, int y)
   } 
 }
 
+/* The colour of the drag bar.
+   It used to be the constant "160 160 160", which is invisible against the light window
+   backgrounds Windows and GTK have had for decades -- and a bright slab across the window on a
+   dark desktop theme, where the background is nearer 30 than 236. Derive it from the toolkit's
+   own dialog colours instead: a third of the way from the background towards the foreground is
+   about 153 on a light theme, which is where the constant was, and a muted grey on a dark one.
+   Falls back to the old constant on a platform that reports neither colour. */
+#define ISBOX_DEFAULT_COLOR "160 160 160"
+
+static char* iSboxDefaultBarColor(void)
+{
+  unsigned char br, bg, bb, fr, fg, fb;
+
+  if (!iupStrToRGB(IupGetGlobal("DLGBGCOLOR"), &br, &bg, &bb) ||
+      !iupStrToRGB(IupGetGlobal("DLGFGCOLOR"), &fr, &fg, &fb))
+    return ISBOX_DEFAULT_COLOR;
+
+  {
+    /* weighted towards the background, so the bar reads as a seam rather than a line */
+    const double towards_foreground = 0.35;
+    int r = (int)(br + (fr - br) * towards_foreground);
+    int g = (int)(bg + (fg - bg) * towards_foreground);
+    int b = (int)(bb + (fb - bb) * towards_foreground);
+
+    return iupStrReturnStrf("%d %d %d", r, g, b);
+  }
+}
+
 static int iSboxCreateMethod(Ihandle* ih, void** params)
 {
   Ihandle* bar;
@@ -428,7 +470,7 @@ static int iSboxCreateMethod(Ihandle* ih, void** params)
   IupSetAttribute(bar, "CURSOR", "RESIZE_WE");
   IupSetAttribute(bar, "ORIENTATION", "VERTICAL");
   IupSetAttribute(bar, "STYLE", "FILL");
-  IupSetAttribute(bar, "COLOR", "160 160 160");
+  IupSetAttribute(bar, "COLOR", iSboxDefaultBarColor());
 
   /* Setting callbacks */
   IupSetCallback(bar, "BUTTON_CB", (Icallback) iSboxButton_CB);
@@ -476,8 +518,8 @@ Iclass* iupSboxNewClass(void)
   iupClassRegisterAttribute(ic, "EXPAND", iupBaseContainerGetExpandAttrib, NULL, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NOT_MAPPED|IUPAF_NO_INHERIT);
 
   /* IupSbox only */
-  iupClassRegisterAttribute(ic, "COLOR", iSboxGetColorAttrib, iSboxSetColorAttrib, IUPAF_SAMEASSYSTEM, "160 160 160", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
-  iupClassRegisterAttribute(ic, "DIRECTION", NULL, iSboxSetDirectionAttrib, IUPAF_SAMEASSYSTEM, "EAST", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+  iupClassRegisterAttribute(ic, "COLOR", iSboxGetColorAttrib, iSboxSetColorAttrib, IUPAF_SAMEASSYSTEM, ISBOX_DEFAULT_COLOR, IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
+  iupClassRegisterAttribute(ic, "DIRECTION", iSboxGetDirectionAttrib, iSboxSetDirectionAttrib, IUPAF_SAMEASSYSTEM, "EAST", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "SHOWGRIP", iSboxGetShowGripAttrib, iSboxSetShowGripAttrib, IUPAF_SAMEASSYSTEM, "NO", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "BARSIZE", iSboxGetBarSizeAttrib, iSboxSetBarSizeAttrib, IUPAF_SAMEASSYSTEM, "5", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
   iupClassRegisterAttribute(ic, "LAYOUTDRAG", iSboxGetLayoutDragAttrib, iSboxSetLayoutDragAttrib, IUPAF_SAMEASSYSTEM, "YES", IUPAF_NOT_MAPPED | IUPAF_NO_INHERIT);
