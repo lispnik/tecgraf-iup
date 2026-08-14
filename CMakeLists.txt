@@ -39,13 +39,12 @@
 # mkdir BUILD; cd BUILD;
 # cmake -GNinja -DCMAKE_BUILD_TYPE=Release ..
 
-if(APPLE)
-	# We're using the new Mac RPATH policy.
-	CMAKE_MINIMUM_REQUIRED(VERSION 3.0)
-else()
-	# Ubuntu 12.04 LTS ships 2.8.7
-	CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
-endif()
+# The minimum used to be 3.0 on Apple and 2.8 elsewhere -- for Ubuntu 12.04, which shipped
+# 2.8.7. CMake 4 removed compatibility with anything below 3.5 outright, so those values now
+# stop the configure step dead rather than merely warning. 3.5 is the oldest CMake that still
+# works, and the <min>...<max> form says the project has been checked against newer policy
+# defaults without changing what the old minimum allowed.
+CMAKE_MINIMUM_REQUIRED(VERSION 3.5...3.31)
 
 if(POLICY CMP0054)
 	cmake_policy(SET CMP0054 NEW)

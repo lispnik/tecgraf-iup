@@ -320,12 +320,14 @@ function(HELPER_CREATE_EXECUTABLE exe_name source_file_list is_using_shared_libs
 			# This will extract the base_file_name including the extension
 			get_filename_component(base_file_name "${resource_file}" NAME)
 
+			# No DEPENDS here: it is not a supported keyword for the TARGET form of
+			# add_custom_command -- older CMake quietly ignored it, CMake 4 rejects it -- and it
+			# would say nothing anyway, since a POST_BUILD command always runs after its target.
 			ADD_CUSTOM_COMMAND(TARGET ${exe_name} POST_BUILD
 				COMMAND ${CMAKE_COMMAND} -E make_directory "${target_resource_dir}"
 				COMMAND ${CMAKE_COMMAND} -E copy_if_different
 					"${resource_file}"
 					"${target_resource_dir}/"
-				DEPENDS "${resource_file}"
 				COMMENT "Copying ${resource_file} to ${target_resource_dir}"
 			)
 
