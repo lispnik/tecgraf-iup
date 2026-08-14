@@ -20,7 +20,7 @@
 
 #include <cd.h>
 #include <cdiup.h>
-//#include <cdpdf.h>
+#include <cdpdf.h>   /* CD_PDF: native on macOS, PDFlib elsewhere */
 
 
 #define MAXPLOT 6  /* room for examples */
@@ -587,13 +587,48 @@ static int dial2_btnup_cb(Ihandle *self, double angle)
 static int bt1_cb(Ihandle *self)
 {
   int ii = tabs_get_index();
-  IupSetAttribute(plot[ii], "CLEAR", "Yes");
-//  IupSetAttribute(plot[ii], "REMOVE", "0");
-  IupSetAttribute(plot[ii], "REDRAW", NULL);
+  cdCanvas* cnv;
+  char filename[1024], data[1200];
+  const char* tmpdir;
 
-//  cdCanvas* cnv = cdCreateCanvas(CD_PDF, "pplot.pdf -o");
-//  IupPlotPaintTo(plot[ii], cnv);
-//  cdKillCanvas(cnv);
+  /* This button is captioned "Export PDF" but its body had been repurposed for testing: it set
+     CLEAR=Yes, which removes every dataset from the plot, and the three lines that actually
+     write the PDF were commented out. Clicking it emptied the plot instead of exporting. */
+
+  /* Not the bare "pplot.pdf" the commented-out code used: that is relative to the working
+     directory, and LaunchServices gives a bundled application "/", which is not writable. */
+  tmpdir = getenv("TMPDIR");
+  if (!tmpdir || !tmpdir[0])
+    tmpdir = "/tmp";
+  sprintf(filename, "%s%spplot.pdf", tmpdir,
+          tmpdir[strlen(tmpdir) - 1] == '/' ? "" : "/");
+  sprintf(data, "%s -o", filename);
+
+  cnv = cdCreateCanvas(CD_PDF, data);
+  if (!cnv)
+  {
+    IupMessagef("Export PDF", "Could not write %s.\n\n"
+                "If this build of CD has no PDF driver, CD_PDF is NULL and there is nothing "
+                "to write with.", filename);
+    return IUP_DEFAULT;
+  }
+
+  IupPlotPaintTo(plot[ii], cnv);
+  cdKillCanvas(cnv);   /* this is what closes the document and writes the file */
+
+  {
+    char command[1200];
+#ifdef __APPLE__
+    sprintf(command, "open \"%s\"", filename);
+#elif defined(WIN32) || defined(_WIN32)
+    sprintf(command, "start \"\" \"%s\"", filename);
+#else
+    sprintf(command, "xdg-open \"%s\"", filename);
+#endif
+    if (system(command) != 0)
+      IupMessagef("Export PDF", "Wrote %s, but could not open it.", filename);
+  }
+
   return IUP_DEFAULT;
 }
 
