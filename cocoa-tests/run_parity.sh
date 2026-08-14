@@ -42,7 +42,9 @@ for name in "${NAMES[@]}"; do
     EXTRA=("$PLOTLIB" "$FW/extra/sample_link_stubs.o" -lc++ -I"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/include")
   fi
 
-  if ! clang -g -o "$BIN/$name" "$src" "${EXTRA[@]}" \
+  # ${EXTRA[@]+...} because bash 3.2 -- which is what /bin/bash is on macOS -- treats an empty
+  # array as unset under `set -u` and aborts.
+  if ! clang -g -o "$BIN/$name" "$src" ${EXTRA[@]+"${EXTRA[@]}"} \
         -I"$IUP/include" -I"$IUP/src" -framework Cocoa \
         -F"$FW" -framework iup -framework iupcontrols -framework iupimglib -framework iupcd -framework iupgl -framework OpenGL -L"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/lib" -lcd -Wl,-rpath,"$FW" \
         -Wno-deprecated-declarations 2>"$BIN/$name.buildlog"; then

@@ -2,6 +2,8 @@
    Asserts native state: NSWindow alpha/level, NSOutlineView indentation, etc. */
 #import <Cocoa/Cocoa.h>
 #include <stdio.h>
+#include <string.h>
+#include <mach-o/dyld.h>
 #include <iup.h>
 #include <iupcontrols.h>
 #include "iup_object.h"
@@ -75,6 +77,18 @@ static int run(Ihandle* t)
              (int)([c greenComponent]*255+.5),(int)([c blueComponent]*255+.5));
     chk(c && [c redComponent]>0.9 && [c greenComponent]>0.9 && [c blueComponent]<0.1,
         "tree BGCOLOR reaches the outline view",buf); }
+
+  { /* EXEFILENAME: GTK implements it, Cocoa did not, and an application asking for it got NULL
+       -- ImLab passes it straight to strlen when locating its images, so it crashed on start.
+       macOS can answer outright rather than resolving argv[0], so check against the path the
+       kernel reports for this very process. */
+    char* exe = IupGetGlobal("EXEFILENAME");
+    char real[4096] = "";
+    uint32_t size = (uint32_t)sizeof(real);
+    _NSGetExecutablePath(real, &size);
+    snprintf(buf, sizeof buf, "EXEFILENAME=%s", exe ? exe : "(null)");
+    chk(exe != NULL && strstr(exe, "miscattrib") != NULL, "EXEFILENAME names this executable", buf);
+    chk(exe != NULL && exe[0] == '/', "...as an absolute path", buf); }
 
   { /* known-but-unsupported must be accepted, not rejected as unknown */
     IupSetAttribute(canvas,"BACKINGSTORE","YES");

@@ -6,6 +6,9 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <limits.h>
+#include <mach-o/dyld.h>   /* _NSGetExecutablePath, for EXEFILENAME */
 
 #include <Cocoa/Cocoa.h>
 
@@ -156,6 +159,43 @@ int iupdrvSetGlobal(const char *name, const char *value)
 
 char *iupdrvGetGlobal(const char *name)
 {
+  if (iupStrEqual(name, "EXEFILENAME"))
+  {
+    /* GTK derives this from realpath(ARGV0), which is only as good as argv[0] -- and argv[0] is
+       whatever the caller passed. macOS knows the answer outright, and knows it for a bundled
+       application too, where argv[0] points inside Contents/MacOS. Fall back to ARGV0 the way
+       GTK does if the executable path is somehow unavailable. */
+    char path[PATH_MAX * 2];
+    uint32_t size = (uint32_t)sizeof(path);
+
+    if (_NSGetExecutablePath(path, &size) == 0)
+    {
+      char* resolved = realpath(path, NULL);   /* collapses the ../ that path can contain */
+      if (resolved)
+      {
+        char* str = iupStrReturnStr(resolved);
+        free(resolved);
+        return str;
+      }
+      return iupStrReturnStr(path);
+    }
+
+    {
+      char* argv0 = IupGetGlobal("ARGV0");
+      if (argv0)
+      {
+        char* resolved = realpath(argv0, NULL);
+        if (resolved)
+        {
+          char* str = iupStrReturnStr(resolved);
+          free(resolved);
+          return str;
+        }
+      }
+    }
+
+    return NULL;
+  }
   if (iupStrEqual(name, "CURSORPOS"))
   {
     char *str = iupStrGetMemory(50);
