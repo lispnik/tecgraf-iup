@@ -50,6 +50,35 @@ for obj in "$FW"/extra/plot/*.o; do
   fi
 done
 
+# IupMglPlot (srcmglplot). MathGL itself is vendored in that directory -- 39 sources plus its
+# mgl2 headers -- so this needs nothing installed, and the three MathGL samples went unbuilt
+# only because nobody had compiled it here.
+#
+# The include path is staged rather than pointed at srcmglplot directly: that directory holds a
+# text file called "version", and with it on the include path libc++'s <version> resolves to
+# "2.3.5.1" and every standard header that includes it fails to parse. Staging a directory that
+# contains only a link to mgl2 keeps that file out of the way. MathGL's own sources include
+# "mgl2/..." with quotes, so the compiler finds them relative to themselves regardless.
+IUPMGL=$FW/extra/mgl/libiup_mglplot.a
+MGLSTAGE=$FW/extra/mgl/include
+mkdir -p "$FW/extra/mgl" "$MGLSTAGE"
+ln -sfn "$IUP/srcmglplot/mgl2" "$MGLSTAGE/mgl2"
+
+for src in "$IUP"/srcmglplot/iup_mglplot.cpp "$IUP"/srcmglplot/src/*.cpp "$IUP"/srcmglplot/src/s_hull/*.cpp; do
+  n=$(basename "$src" .cpp)
+  if [ ! -e "$FW/extra/mgl/$n.o" ] || [ "$src" -nt "$FW/extra/mgl/$n.o" ]; then
+    clang++ -c -std=c++11 -O2 -DMGL_STATIC_DEFINE -DMGL_SRC \
+      -I"$MGLSTAGE" -I"$IUP/include" -I"$IUP/src" -Wno-everything \
+      -o "$FW/extra/mgl/$n.o" "$src" || exit 1
+  fi
+done
+for obj in "$FW"/extra/mgl/*.o; do
+  if [ ! -e "$IUPMGL" ] || [ "$obj" -nt "$IUPMGL" ]; then
+    ar rcs "$IUPMGL" "$FW"/extra/mgl/*.o || exit 1
+    break
+  fi
+done
+
 # CD has no printer driver on macOS -- cdContextPrinter is a Windows/GDI-only symbol, and the
 # Quartz build of libcd exports nothing like it. Several tutorial samples reference CD_PRINTER
 # unconditionally and so will not link at all. They all guard on cdCreateCanvas returning NULL
@@ -99,7 +128,7 @@ fi
 # GL: link the real iupgl framework, and put a GL/gl.h -> OpenGL/gl.h shim on the include
 # path, since macOS ships OpenGL as a framework and the samples use the header path every
 # other platform has.
-LDFLAGS="$CDSTUB $IUPIM $IUPPLOT -lc++ -lim -lim_process -F$FW -framework iup -framework iupimglib -framework iupcontrols -framework iupcd -framework iupgl -framework iupglcontrols -framework iupweb -framework OpenGL -framework GLUT -L$BREW/lib -lcd -Wl,-rpath,$FW"
+LDFLAGS="$CDSTUB $IUPIM $IUPPLOT $IUPMGL -lc++ -lim -lim_process -F$FW -framework iup -framework iupimglib -framework iupcontrols -framework iupcd -framework iupgl -framework iupglcontrols -framework iupweb -framework OpenGL -framework GLUT -L$BREW/lib -lcd -Wl,-rpath,$FW"
 
 # A few tests in html/examples/tests call a function defined in a sibling test file without
 # declaring it; the symbol is satisfied at link time by compiling the sibling with -DBIG_TEST

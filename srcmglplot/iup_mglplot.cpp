@@ -33,7 +33,15 @@
 #ifdef WIN32
 #include <windows.h>
 #endif
+#ifdef __APPLE__
+/* Apple keeps the OpenGL headers in a framework rather than in GL/, and deprecates the API in
+   favour of Metal; this control draws with it directly, so silence that here rather than
+   project wide. */
+#define GL_SILENCE_DEPRECATION
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 #pragma warning(push, 0)
 #include "mgl2/mgl.h"
@@ -1753,6 +1761,17 @@ static void iMglPlotRepaint(Ihandle* ih, int force, int flush)
     force = 1;
 
   IupGLMakeCurrent(ih);
+
+  /* If OPENGL was asked for before this control was mapped, the graph built then is a software
+     one -- there was no context to make a GL canvas against. There is one now, and the flag
+     below records which kind the current graph is, since MathGL does not expose that. */
+  if (ih->data->opengl && !iupAttribGetBoolean(ih, "_IUP_MGL_GRAPH_IS_GL"))
+  {
+    delete ih->data->mgl;
+    ih->data->mgl = new mglGraph(1, ih->data->w, ih->data->h);
+    iupAttribSet(ih, "_IUP_MGL_GRAPH_IS_GL", "YES");
+    force = 1;
+  }
 
   mglGraph* gr = ih->data->mgl;
 
@@ -3743,9 +3762,22 @@ static int iMglPlotSetOpenGLAttrib(Ihandle* ih, const char* value)
     ih->data->redraw = 1;
 
     if (ih->handle)
-      iMglPlotInitOpenGL2D(ih);
-
-    ih->data->mgl = new mglGraph(ih->data->opengl, ih->data->w, ih->data->h);
+    {
+      iMglPlotInitOpenGL2D(ih);   /* this is what makes the context current */
+      ih->data->mgl = new mglGraph(ih->data->opengl, ih->data->w, ih->data->h);
+      iupAttribSet(ih, "_IUP_MGL_GRAPH_IS_GL", ih->data->opengl ? "YES" : "NO");
+    }
+    else
+    {
+      /* Not mapped yet, so there is no OpenGL context. mglCanvasGL issues GL calls from its
+         constructor -- Clf() clears the buffer -- and on a platform where a call with no
+         current context is fatal rather than ignored, this crashed before the dialog was even
+         shown. Samples set OPENGL before showing, so this is the ordinary order of events.
+         Build a software graph for now; iMglPlotRepaint swaps in the GL one once a context
+         exists. */
+      ih->data->mgl = new mglGraph(0, ih->data->w, ih->data->h);
+      iupAttribSet(ih, "_IUP_MGL_GRAPH_IS_GL", "NO");
+    }
   }
 
   return 0;

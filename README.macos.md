@@ -96,8 +96,9 @@ the failure mode this backend had.
   native on CGPDFContext with no PDFlib, and **PS/EPS, CGM, DXF and DGN** were portable drivers
   sitting unbuilt in `src/drv` and are now in the CD build. IupPlot's export menu and its
   Print… item all work.
-- **MathGL and Scintilla** are not built, so `mglplot`, `mathglsamples`, `mgllabel` and
-  `scintilla` do not build.
+- **Scintilla is not built**, so the `scintilla` sample does not build. MathGL is built:
+  `srcmglplot` vendors the library, and `cocoa-tests/build_apps.sh` compiles it into
+  `libiup_mglplot.a`, so `mglplot`, `mathglsamples` and `mgllabel` all run.
 - **Menu accelerators map `Ctrl` to the literal Control key**, not Command. An application
   declaring `Ctrl+A` therefore claims ⌃A application-wide, which is also macOS's standard
   emacs binding for move-to-line-start inside a text field.
