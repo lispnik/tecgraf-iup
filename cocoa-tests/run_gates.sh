@@ -89,7 +89,13 @@ for suite in "${SUITES[@]}"; do
       harnesses=$(echo "$out" | grep -cE "^=== ")
       echo "  $harnesses harnesses, $assertions assertions, $gaps gap(s)"
       echo "$out" | grep -E "^GAP" | head -5
-      if [ "$gaps" = "0" ]; then
+      # No gaps is only good news if something actually ran. When the installed libcd took an
+      # @rpath install name, every harness died in dyld before main and asserted nothing -- and
+      # this reported "ok, 22 harnesses, 0 assertions", which is the one answer a gate must
+      # never give. Silence is not success.
+      if [ "$assertions" = "0" ]; then
+        note "IUP parity" "FAILED" "$harnesses harnesses ran but asserted nothing -- did they start?"
+      elif [ "$gaps" = "0" ]; then
         note "IUP parity" "ok" "$harnesses harnesses, $assertions assertions"
       else
         note "IUP parity" "FAILED" "$gaps gap(s)"
@@ -104,6 +110,9 @@ for suite in "${SUITES[@]}"; do
         note "IupMglPlot" "skipped" "sample not built"
       elif echo "$out" | grep -q "^0 failure"; then
         note "IupMglPlot" "ok" "$(echo "$out" | grep -cE '^ok') tabs render"
+      elif ! echo "$out" | grep -qE "^(ok|FAIL)"; then
+        # the sample never got as far as reporting on a tab -- see the note above
+        note "IupMglPlot" "FAILED" "the sample reported nothing -- did it start?"
       else
         note "IupMglPlot" "FAILED" "$(echo "$out" | grep -cE '^FAIL') tab(s) blank"
       fi

@@ -111,9 +111,11 @@ STUB
 void* cdContextPDF(void) { return 0; }
 STUB
   cd_has cdInitContextPlus || cat <<'STUB'
-/* cdInitContextPlus enables CD's anti-aliased "Plus" contexts, which the macOS libcd does not
-   ship. The samples that call it only use it to opt into nicer rendering. */
+/* Only needed against a libcd built without src/quartz/cdquartzplus.c, which now supplies these
+   for real. An empty body is what the real one does too: Quartz has no separate anti-aliased
+   driver to register, because CoreGraphics anti-aliases already. */
 void cdInitContextPlus(void) { }
+void cdFinishContextPlus(void) { }
 STUB
 } > "$CDSTUB_SRC.new"
 

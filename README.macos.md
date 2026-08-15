@@ -104,13 +104,18 @@ the failure mode this backend had.
   inner-inset API (its cell owns that geometry), so only the natural size grows — which is
   also all GTK does there, since it sets an outer widget margin rather than an inner one.
   Multiline gets a real inset via `-setTextContainerInset:`.
-- **CD's "Plus" contexts are not built**, so `cdInitContextPlus` is the one symbol
-  `cocoa-tests/build_apps.sh` still stubs; samples that ask for the anti-aliased contexts get
-  the plain ones. Printing and export are no longer in this list: **CD_PRINTER** is implemented
-  on Quartz (`src/quartz/cdquartzprn.m`, spooling through PDF to `NSPrintOperation`), **PDF** is
-  native on CGPDFContext with no PDFlib, and **PS/EPS, CGM, DXF and DGN** were portable drivers
-  sitting unbuilt in `src/drv` and are now in the CD build. IupPlot's export menu and its
-  Print… item all work.
+- **Nothing in CD is stubbed any more**, so this is a gap that closed rather than one that
+  remains. `cocoa-tests/build_apps.sh` emits one stub per symbol the installed libcd does not
+  export, and against the current CD that file comes out empty. **CD_PRINTER** is implemented on
+  Quartz (`src/quartz/cdquartzprn.m`, spooling through PDF to `NSPrintOperation`), **PDF** is
+  native on CGPDFContext with no PDFlib, **PS/EPS, CGM, DXF and DGN** were portable drivers
+  sitting unbuilt in `src/drv` and are now in the CD build, and **`cdInitContextPlus`** is real
+  (`src/quartz/cdquartzplus.c`). That last one registers nothing, deliberately: CD's "Plus"
+  contexts are its anti-aliased drivers standing in for the plain ones — GDI+ for GDI, Cairo or
+  XRender for X11 — and Quartz needs no stand-in, because CoreGraphics anti-aliases already and
+  the driver asks for it explicitly. An application may call `cdInitContextPlus` and then
+  `cdUseContextPlus(1)` and go on getting the ordinary contexts, which is the drawing it was
+  asking for. IupPlot's export menu and its Print… item all work.
 - **Scintilla is not built**, so the `scintilla` sample does not build. MathGL is built:
   `srcmglplot` vendors the library, and `cocoa-tests/build_apps.sh` compiles it into
   `libiup_mglplot.a`, so `mglplot`, `mathglsamples` and `mgllabel` all run.

@@ -74,15 +74,27 @@ Output goes to `BUILD-xcode/Release/<outdir>/`, one `.app` bundle each. Bundles 
 executable cannot become the active application on modern macOS, so its window never takes key
 focus.
 
-The script also builds two libraries that IUP's CMakeLists does not define as targets but whose
-dependencies are present — **IupIm** (`srcim/`, needs homebrew `tecgraf-im`) and **IupPlot**
-(`srcplot/`) — and links a few stubs for symbols macOS genuinely lacks:
+The script also builds three libraries that IUP's CMakeLists does not define as targets but whose
+dependencies are present — **IupIm** (`srcim/`, needs homebrew `tecgraf-im`), **IupPlot**
+(`srcplot/`) and **IupMglPlot** (`srcmglplot/`, which vendors MathGL).
 
-* `cdContextPrinter`, `cdContextCGM`, `cdContextPS` — CD has no printer or CGM/PS driver on macOS.
-  Callers already check `cdCreateCanvas` for NULL, so those output formats are simply unavailable.
-* `IupGLCanvasOpen`, `IupGLMakeCurrent`, `IupGLSwapBuffers` — **IupGLCanvas has no Cocoa
-  implementation at all** (`srcgl/` covers only win, x and haiku). IupPlot references them
-  unconditionally but only reaches them in OpenGL graphics mode, which cannot occur here.
+It also links stubs for CD symbols the installed libcd does not export — and against the current
+CD **there are none**, so the generated `sample_link_stubs.c` comes out empty. The stubs are
+decided per symbol, by asking `nm` what libcd exports, rather than all-or-nothing: the stub
+object is listed ahead of `-lcd` on the link line, so a stub *shadows* a real definition in the
+library, and stubbing unconditionally silently disabled each feature as CD gained it. That is
+not hypothetical — it is what happened when a native `CD_PDF` driver appeared and the samples
+went on calling a stub that returned NULL.
+
+What used to be stubbed, and what supplies it now:
+
+| symbol | now provided by |
+|---|---|
+| `cdContextPrinter` | `src/quartz/cdquartzprn.m` — NSPrintOperation, spooled through PDF |
+| `cdContextPDF` | `src/quartz/cdquartzpdf.c` — CGPDFContext, no PDFlib |
+| `cdContextPS`, `cdContextCGM` | portable drivers that were sitting unbuilt in `src/drv` |
+| `cdInitContextPlus` | `src/quartz/cdquartzplus.c` — registers nothing, Quartz being anti-aliased already |
+| `IupGLCanvasOpen`, `IupGLMakeCurrent`, `IupGLSwapBuffers` | `srcgl/iup_glcanvas_cocoa.m` |
 
 A handful of samples compile to nothing unless their own feature macro is defined (`plot.c` wraps
 its entire body in `#ifdef PLOT_TEST`); the script defines those. A few others call a function
