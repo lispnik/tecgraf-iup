@@ -988,7 +988,9 @@ int iupdrvDialogSetPlacement(Ihandle* ih)
 	id root_object = (id)ih->handle;
 	if([root_object isKindOfClass:[NSStatusItem class]])
 	{
-		return 0;
+		/* A tray dialog has no window to title, but the attribute is still worth keeping so it
+		   can be read back. */
+		return 1;
 	}
 	
 	char* placement;
@@ -1351,8 +1353,11 @@ static int cocoaDialogSetTitleAttrib(Ihandle* ih, const char* value)
 	{
 		[the_window setTitle:@""];
 	}
-	// Not sure if this should be 0 or 1. The PROXYICONTITLE could theoretically change this.
-	return 0;
+	/* 1, so IUP keeps the value: a setter returning 0 tells it not to, and there is no getter
+	   here, so IupGetAttribute(dlg, "TITLE") answered NULL once the dialog was mapped -- while
+	   GTK and Windows both return the title. Anything identifying a dialog by its title, a test
+	   harness included, was told it had none. */
+	return 1;
 }
 
 

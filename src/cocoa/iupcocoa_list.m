@@ -117,7 +117,9 @@ static NSView* cocoaListGetBaseWidget(Ihandle* ih)
 	
 	if(nil == root_widget)
 	{
-		NSLog(@"Warning: cocoaListGetBaseWidget is nil");
+		/* Not an error: the control has not been mapped yet. IUP applies attributes to an
+		   unmapped control by storing them, and re-applies the lot from iupAttribUpdate when
+		   the widgets exist -- so callers get nil here and should simply do nothing native. */
 		return nil;
 	}
 	 
@@ -1204,6 +1206,15 @@ static int cocoaListSetFontAttrib(Ihandle* ih, const char* value)
 	}
 	the_font = [iupCocoaGetFont(ih) nativeFont];
 	if(nil == the_font)
+	{
+		return 1;
+	}
+
+	/* Before the map there are no widgets to set it on. The value is kept, and IupMap applies
+	   every stored attribute again through iupAttribUpdate, so the font still arrives. Setting
+	   FONT on a dialog reaches every child this way -- simple_paint does it at startup -- and
+	   each unmapped list logged a warning and dropped the request. */
+	if(NULL == ih->handle)
 	{
 		return 1;
 	}

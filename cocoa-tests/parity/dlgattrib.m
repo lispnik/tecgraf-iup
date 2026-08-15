@@ -127,6 +127,19 @@ static int run(Ihandle* t)
         chk(g_tray_clicks == 1, "clicking the tray icon calls TRAYCLICK_CB", buf); }
     } }
 
+  { /* TITLE has to be readable, not just applied. The setter returned 0 -- "do not keep this"
+       -- and there is no getter, so IupGetAttribute answered NULL once the dialog was mapped,
+       while GTK and Windows both return the title. */
+    NSWindow* w = (NSWindow*)dlg->handle;
+    char* title;
+
+    IupSetAttribute(dlg, "TITLE", "Round Trip");
+    title = IupGetAttribute(dlg, "TITLE");
+    snprintf(buf, sizeof buf, "IupGetAttribute=%s, NSWindow title=%s",
+             title ? title : "(null)", [[w title] UTF8String]);
+    chk(title && 0 == strcmp(title, "Round Trip"), "dialog TITLE can be read back", buf);
+    chk([[w title] isEqualToString:@"Round Trip"], "...and reached the window", buf); }
+
   printf("%d gap(s)\n", g_gaps);
   IupExitLoop();
   return IUP_DEFAULT;

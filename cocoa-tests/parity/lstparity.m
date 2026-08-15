@@ -162,6 +162,23 @@ static int run(Ihandle* t)
     snprintf(buf,sizeof buf,"%d call(s)",g_valuechanged-before);
     chk(g_valuechanged>before,"typing raises VALUECHANGED_CB",buf); }
 
+  { /* A FONT set on the dialog reaches every child, including ones not mapped yet: IUP stores
+       the value and re-applies it from iupAttribUpdate at map. The list's setter used to ask
+       for its native widgets regardless, log "cocoaListGetBaseWidget is nil" and drop the
+       request -- which is what simple_paint printed four times at startup. */
+    NSTableView* tv = tableOf(l_multi);
+    /* rows are plain NSTextFields built by -tableView:viewForTableColumn:row:, not
+       NSTableCellViews, and that factory is where the font is applied */
+    NSView* cell = tv ? [tv viewAtColumn:0 row:0 makeIfNecessary:YES] : nil;
+    NSFont* font = [cell respondsToSelector:@selector(font)] ? [(id)cell font] : nil;
+    char buf2[200];
+    snprintf(buf2,sizeof buf2,"IUP FONT=%s, native %s %.1fpt",
+             IupGetAttribute(l_multi,"FONT") ?: "(null)",
+             font ? [[font fontName] UTF8String] : "(none)", font ? [font pointSize] : -1.0);
+    (void)cell;
+    chk(font != nil && [font pointSize] > 17.0 && [font pointSize] < 19.0,
+        "a FONT set before map still reaches the list",buf2); }
+
   printf("\n%d gap(s)\n",g_gaps);
   IupExitLoop(); return IUP_DEFAULT;
 }
@@ -188,6 +205,8 @@ int main(int argc,char**argv)
   IupSetAttribute(l_multi,"VISIBLELINES","5");
   dlg=IupDialog(IupVbox(l_drop,l_combo,l_multi,l_single,NULL));
   IupSetAttribute(dlg,"TITLE","list parity");
+  /* before the map, so it reaches children that have no widgets yet -- see the check below */
+  IupSetAttribute(dlg,"FONT","Helvetica, 18");
   IupShow(dlg);
   t=IupTimer(); IupSetAttribute(t,"TIME","700");
   IupSetCallback(t,"ACTION_CB",run); IupSetAttribute(t,"RUN","YES");
