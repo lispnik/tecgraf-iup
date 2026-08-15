@@ -4958,6 +4958,13 @@ static int iMglPlotCreateMethod(Ihandle* ih, void **params)
 
   IupSetAttribute(ih, "BUFFER", "DOUBLE");
 
+  /* MathGL's OpenGL canvas draws in three dimensions and depth-tests, so it needs a depth
+     buffer -- and the pixel format is chosen from these attributes at map time, so asking here
+     is the only chance. Windows and GLX hand out a depth buffer whether or not one is asked
+     for, which is why this was never needed before; Cocoa gives exactly what is requested, and
+     without it every fragment failed the depth test and the plot came out blank. */
+  IupSetAttribute(ih, "DEPTH_SIZE", "24");
+
   ih->data->redraw = true;
   ih->data->w = 1;
   ih->data->h = 1;
