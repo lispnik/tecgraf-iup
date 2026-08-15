@@ -135,10 +135,21 @@ the failure mode this backend had.
   emacs binding for move-to-line-start inside a text field.
 - **Mnemonics are stripped, not implemented.** `&` is removed from titles; there is no
   Alt-key activation, which macOS has no convention for.
-- **`plot.app`'s canvas is larger than the dialog holding it** — 580x462 inside a 525x378
-  window, hanging off the bottom right — so the right of the plot is cut off until the window
-  is resized. It is not a consequence of the character-width metric: the canvas measured the
-  same 580x462 before and after that changed.
+- **`plot.app` opens narrower than its own contents**, so the right of the plot is cut off until
+  the window is resized. What remains of this is not a bug: `plot.c` asks for `SIZE=300x`
+  (≈525 px) while its canvas alone is 580 wide, and `iupBaseSetCurrentSize` never compresses a
+  child below its natural size unless the dialog sets `SHRINK` — common code, so every backend
+  honours the too-narrow request the same way. Clearing `SIZE` after `IupShowXY`, as the sample
+  does, takes effect at the next layout, which is why one resize fixes it.
+
+  The *vertical* half of this was a real defect and is fixed. `cocoaTabsComputeNaturalSize`
+  derived IupTabs' natural height from the tab view's current frame, which had come from the
+  previous natural size — so the answer drifted (494, 470, 464 for the same 300 pt child) and
+  never included the tab bar. A dialog sized from one pass then laid its children out from
+  another. The bar is now measured as the difference between the controller's view and the tab
+  view inside it, since the segmented control is a sibling of the tab view rather than part of
+  it, which is why `-contentRect` reports no decoration here. See
+  `cocoa-tests/parity/tabsize.m`.
 
 ## Layout of the Cocoa work
 

@@ -668,6 +668,29 @@ static int cocoaTabsComputeFullTabBarWidth(Ihandle* ih)
   return running_width;
 }
 
+/* Fallbacks for the tab bar's height, used only when there is no laid-out control to measure:
+   the segmented control's own fitting height is 24 at the default font, and the controller puts
+   6 points around it, for the 30 that a laid-out control reports. */
+#define IUPCOCOA_TABS_BAR_PADDING 6
+#define IUPCOCOA_TABS_BAR_HEIGHT_DEFAULT 30
+
+static NSSegmentedControl* cocoaTabsFindSegmentedControl(NSView* the_view)
+{
+	if([the_view isKindOfClass:[NSSegmentedControl class]])
+	{
+		return (NSSegmentedControl*)the_view;
+	}
+	for(NSView* sub_view in [the_view subviews])
+	{
+		NSSegmentedControl* found = cocoaTabsFindSegmentedControl(sub_view);
+		if(nil != found)
+		{
+			return found;
+		}
+	}
+	return nil;
+}
+
 static void cocoaTabsComputeNaturalSize(Ihandle* ih, int *w, int *h, int *children_expand)
 {
 	Ihandle* child;
@@ -701,49 +724,51 @@ static void cocoaTabsComputeNaturalSize(Ihandle* ih, int *w, int *h, int *childr
 	IupTabViewController* tab_view_controller = cocoaGetTabViewController(ih);
 
 	NSTabView* tab_view = [tab_view_controller tabView];
-	
-	// It seems that this might give us the correct height. But the width doesn't seem helpful.
-	// Apple allows truncating the strings into the tabs with ellipses.
-	// So trying to compute the natural size with that value isn't working out.
-	NSRect the_rect = [tab_view frame];
-	//NSLog(@"cocoaTabsComputeNaturalSize the_rect: %@", NSStringFromRect(the_rect));
 
-/*
-	// this is 0,0
-	NSSize minimum_size = [tab_view minimumSize];
-	NSLog(@"cocoaTabsComputeNaturalSize minimum_size: %@", NSStringFromSize(minimum_size));
-	// this is 0,0
-	NSSize preferredContentSize = [tab_view_controller preferredContentSize];
-	NSLog(@"cocoaTabsComputeNaturalSize preferredContentSize: %@", NSStringFromSize(preferredContentSize));
-	// This is 20,20
-	NSSize preferredMinimumSize = [tab_view_controller preferredMinimumSize];
-	NSLog(@"cocoaTabsComputeNaturalSize v: %@", NSStringFromSize(preferredMinimumSize));
-*/
-
-	// The above built-in values does't seem to include the segmented-bar space as part of the size.
-	// I don't know an official way to compute the size.
-	// So we have to do it the hard way and brute force an estimate.
+	// The tab bar's own width has to be estimated: Apple truncates tab labels with ellipses, so
+	// no native measurement reports the width at which the bar stops eliding.
 	int max_tab_bar_width = cocoaTabsComputeFullTabBarWidth(ih);
-	//NSLog(@"cocoaTabsComputeNaturalSize max_tab_width: %d", max_tab_bar_width);
 
-	// We also need to account for the tab bar height and padding.
-	// The bar height seems to be about 21 pixels
-	// There also seems to be about 4 pixels of space above, and 6 pixels below.
-	// UPDATE: The frame on tabView seems to get us the height we need. My values seem to be bigger than what frame says.
-//	int add_tab_height = 21 + 4 + 6;
+	// The tab bar's HEIGHT, on the other hand, is the difference between the controller's view
+	// and the tab view it puts inside it -- the segmented control is a sibling of the tab view,
+	// not part of it, which is why -contentRect reports no decoration at all here.
+	//
+	// That difference is a property of the control (30 points for the segmented style at the
+	// default font). Either frame ON ITS OWN is not: it is merely the last layout. This used to
+	// answer
+	//
+	//     final_h = iupMAX(children_naturalheight, [tab_view frame].size.height);
+	//
+	// which makes the natural size a function of the previous natural size. For a 300pt child it
+	// answered 494, then 470, then 464 on successive passes, so a dialog sized from one pass had
+	// its children laid out from another and they hung off the window -- what plot.app showed as
+	// a plot cut off on the right until the window was resized. It also never added the bar to
+	// the children's height, so the children were squeezed by exactly the bar.
+	//
+	// The layout must be forced: until AppKit has placed the segmented control the difference
+	// reads 24 rather than 30, which is wrong in a way that looks plausible. IUP resizes all of
+	// these views itself immediately afterwards, in iupLayoutUpdate.
+	NSView* controller_view = [tab_view_controller view];
+	[controller_view layoutSubtreeIfNeeded];
 
-	int final_w;
-	int final_h;
-	
-	final_w = iupMAX(children_naturalwidth, max_tab_bar_width);
-	
-//	final_h = children_naturalwidth + add_tab_height;
-	final_h = iupMAX(children_naturalheight, the_rect.size.height);
+	int decor_height = (int)([controller_view frame].size.height - [tab_view frame].size.height);
+	if(decor_height <= 0)
+	{
+		// Nothing laid out to measure -- no tabs yet, say. The bar itself, plus the padding the
+		// controller puts around it.
+		NSSegmentedControl* segmented_control = cocoaTabsFindSegmentedControl(controller_view);
+		if(nil != segmented_control)
+		{
+			decor_height = (int)[segmented_control fittingSize].height + IUPCOCOA_TABS_BAR_PADDING;
+		}
+		else
+		{
+			decor_height = IUPCOCOA_TABS_BAR_HEIGHT_DEFAULT;
+		}
+	}
 
-//	NSLog(@"cocoaTabsComputeNaturalSize final w:%d h:%d", final_w, final_h);
-
-	*w = final_w;
-	*h = final_h;
+	*w = iupMAX(children_naturalwidth, max_tab_bar_width);
+	*h = children_naturalheight + decor_height;
 }
 
 

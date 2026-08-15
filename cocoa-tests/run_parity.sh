@@ -21,7 +21,7 @@ fi
 
 NAMES=("$@")
 if [ ${#NAMES[@]} -eq 0 ]; then
-  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity plotexport filedlg nativestate mglrender)
+  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity plotexport filedlg nativestate mglrender tabsize)
 fi
 
 status=0
