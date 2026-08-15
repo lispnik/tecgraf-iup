@@ -61,6 +61,36 @@ static int run(Ihandle* t)
     snprintf(buf, sizeof buf, "contentView=%.0fx%.0f", cr.size.width, cr.size.height);
     chk(cr.size.width > 0 && cr.size.height > 0, "client area is non-degenerate", buf); }
 
+  /* SIZE is in quarter-character units, so everything sized that way is scaled by the font's
+     "average character width" -- and what counts as average differs by platform. Windows uses
+     TEXTMETRIC.tmAveCharWidth and GTK uses Pango's approximate_char_width, both lowercase
+     weighted and both close to the width of 'x'. Averaging the whole alphabet instead, capitals
+     included, made every such dialog about an eighth wider here than on the other platforms.
+     Checked as a ratio so it holds for any font: derive the width IUP used from a dialog sized
+     in characters, and compare it against the two candidates. */
+  { Ihandle* sized = IupDialog(IupCanvas(NULL));
+    double used, x_width, mixed_width;
+    NSFont* font;
+    int w = 0, h = 0;
+
+    IupSetAttribute(sized, "SIZE", "300x");
+    IupMap(sized);
+    IupGetIntInt(sized, "RASTERSIZE", &w, &h);
+    used = w / (300.0 / 4.0);
+
+    font = [NSFont systemFontOfSize:13.0];
+    { NSDictionary* attrs = @{NSFontAttributeName: font};
+      x_width = [@"x" sizeWithAttributes:attrs].width;
+      mixed_width = [@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                      sizeWithAttributes:attrs].width / 52.0; }
+
+    snprintf(buf, sizeof buf, "SIZE=300x gave %dpx, so charwidth=%.2f ('x' is %.2f, whole "
+             "alphabet %.2f)", w, used, x_width, mixed_width);
+    chk(used >= x_width - 1.0 && used <= x_width + 1.0,
+        "character units are scaled by a lowercase-weighted width", buf);
+
+    IupDestroy(sized); }
+
   printf("%d gap(s)\n", g_gaps);
   IupExitLoop();
   return IUP_DEFAULT;

@@ -103,13 +103,10 @@ the failure mode this backend had.
   emacs binding for move-to-line-start inside a text field.
 - **Mnemonics are stripped, not implemented.** `&` is removed from titles; there is no
   Alt-key activation, which macOS has no convention for.
-- **Dialogs sized in character units come out wider than on GTK/Windows.** `SIZE` is in
-  quarter-character units, so a dialog is `charwidth * SIZE / 4` pixels wide, and the Cocoa
-  driver's `charwidth` averages `a-zA-Z` — 7.75px for the 13pt system font, which rounds to
-  **8**. Averaging lowercase only, which is closer to what `tmAveCharWidth` and Pango's
-  `approximate_char_width` report, gives 6.80 → **7**. So `plot.c`'s `SIZE="300x"` opens at
-  600px here against roughly 525px elsewhere. Changing the metric would move every control
-  sized in character units, so it has been measured but not changed.
+- **`plot.app`'s canvas is larger than the dialog holding it** — 580x462 inside a 525x378
+  window, hanging off the bottom right — so the right of the plot is cut off until the window
+  is resized. It is not a consequence of the character-width metric: the canvas measured the
+  same 580x462 before and after that changed.
 
 ## Layout of the Cocoa work
 

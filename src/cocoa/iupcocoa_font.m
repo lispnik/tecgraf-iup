@@ -50,10 +50,18 @@ static NSMutableDictionary<NSString*, IupCocoaFont*>* s_mapOfFonts = nil;
    label declared "SIZE=70x" asked for 700px instead of ~120 (see the simple_paint status bar,
    which forced its dialog's canvas to 1361px inside a 735px window). Average the advance over a
    representative alphabet instead. */
+/* The "average character width" IUP sizes controls with -- SIZE is in quarter-character units,
+   so this number multiplies every width expressed that way.
+
+   Lowercase only, deliberately. The other platforms report a lowercase-weighted average here:
+   Windows takes TEXTMETRIC.tmAveCharWidth, and GTK takes Pango's approximate_char_width, both
+   of which land near the width of 'x' rather than the mean of the whole alphabet. Averaging
+   a-zA-Z as well gave 7.75px for the 13pt system font against 6.80 for lowercase -- 8 versus 7
+   once rounded -- so every dialog sized in character units came out an eighth wider here than
+   on Windows or GTK. plot.c asks for SIZE="300x" and got 600px against roughly 525 elsewhere. */
 static int cocoaFontComputeAverageCharWidth(NSFont* ns_font)
 {
-	static NSString* const k_sample =
-		@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	static NSString* const k_sample = @"abcdefghijklmnopqrstuvwxyz";
 	NSDictionary* attributes = [NSDictionary dictionaryWithObject:ns_font forKey:NSFontAttributeName];
 	NSSize sample_size = [k_sample sizeWithAttributes:attributes];
 	int char_width = iupROUND(sample_size.width / (CGFloat)[k_sample length]);
