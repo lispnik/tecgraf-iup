@@ -90,6 +90,28 @@ static int run(Ihandle* t)
     chk(exe != NULL && strstr(exe, "miscattrib") != NULL, "EXEFILENAME names this executable", buf);
     chk(exe != NULL && exe[0] == '/', "...as an absolute path", buf); }
 
+  { /* Drag and drop configuration has to be readable, not just applied. These four setters
+       returned 0 -- "do not keep this" -- with no getter, so an application could set a drop
+       target and then be told it had none, while GTK stores all four. They are configuration,
+       unlike DRAGINITIATE or DROPPASTE, which are commands and rightly discarded. */
+    const char* names[4] = { "DRAGSOURCE", "DRAGTYPES", "DROPTARGET", "DROPTYPES" };
+    const char* values[4] = { "YES", "TEXT", "YES", "TEXT" };
+    int i, kept = 0;
+
+    for (i = 0; i < 4; i++)
+      IupSetAttribute(canvas, names[i], values[i]);
+
+    buf[0] = 0;
+    for (i = 0; i < 4; i++)
+    {
+      char* got = IupGetAttribute(canvas, names[i]);
+      char one[64];
+      if (got && 0 == strcmp(got, values[i])) kept++;
+      snprintf(one, sizeof one, "%s=%s ", names[i], got ? got : "(null)");
+      strncat(buf, one, sizeof buf - strlen(buf) - 1);
+    }
+    chk(kept == 4, "drag and drop configuration can be read back", buf); }
+
   { /* known-but-unsupported must be accepted, not rejected as unknown */
     IupSetAttribute(canvas,"BACKINGSTORE","YES");
     IupSetAttribute(tabs,"TABORIENTATION","HORIZONTAL");

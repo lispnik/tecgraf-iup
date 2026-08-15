@@ -1615,7 +1615,10 @@ static int cocoaTargetDropSetDropTargetAttrib(Ihandle* ih, const char* value)
 		}
 	}
 
-	return 0;
+	/* 1, so IUP keeps the value: this is configuration the application can read back -- GTK
+	   stores all four of these -- not a command like DRAGINITIATE or DROPPASTE, where
+	   discarding is right. */
+	return 1;
 
 }
 
@@ -1665,7 +1668,10 @@ static int cocoaTargetDropSetDropTypesAttrib(Ihandle* ih, const char* value)
 		[drag_drop_data setDropRegisteredTypes:nil];
 	}
 
-	return 0;
+	/* 1, so IUP keeps the value: this is configuration the application can read back -- GTK
+	   stores all four of these -- not a command like DRAGINITIATE or DROPPASTE, where
+	   discarding is right. */
+	return 1;
 }
 
 static int cocoaSourceDropSetPasteFromPasteboardAttrib(Ihandle* ih, const char* value)
@@ -1765,7 +1771,10 @@ static int cocoaSourceDragSetDragSourceAttrib(Ihandle* ih, const char* value)
 		*/
 	}
 
-	return 0;
+	/* 1, so IUP keeps the value: this is configuration the application can read back -- GTK
+	   stores all four of these -- not a command like DRAGINITIATE or DROPPASTE, where
+	   discarding is right. */
+	return 1;
 
 }
 
@@ -1801,7 +1810,10 @@ static int cocoaSourceDragSetDragTypesAttrib(Ihandle* ih, const char* value)
 		[drag_drop_data setDragRegisteredTypes:nil];
 	}
 
-	return 0;
+	/* 1, so IUP keeps the value: this is configuration the application can read back -- GTK
+	   stores all four of these -- not a command like DRAGINITIATE or DROPPASTE, where
+	   discarding is right. */
+	return 1;
 
 }
 
