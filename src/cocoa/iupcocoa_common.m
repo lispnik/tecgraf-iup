@@ -1334,7 +1334,15 @@ int iupCocoaCommonBaseSetLayerBackedAttrib(Ihandle* ih, const char* value)
 	{
 		BOOL should_enable = (BOOL)iupStrBoolean(value);
 		[main_view setWantsLayer:should_enable];
-		NSView* root_view = iupCocoaGetMainView(ih);
+
+		/* Layer-back the whole widget, wrapper included -- which is what this branch was
+		   written for. A scrollable IupCanvas, a list or a multiline IupText hands back an
+		   NSScrollView, and layer-backing only the view inside it leaves the scroll view
+		   drawing the old way. This asked for the MAIN view a second time, so the two were
+		   never different, the branch never ran, and the wrapper was never layer-backed. It
+		   also disagreed with the getter, which reads the root view: LAYERBACKED could be set
+		   on a scrollable canvas and read straight back as NO. */
+		NSView* root_view = iupCocoaGetRootView(ih);
 		if(root_view != main_view)
 		{
 			[root_view setWantsLayer:should_enable];
@@ -1357,10 +1365,15 @@ int iupCocoaCommonBaseSetLayerBackedAttrib(Ihandle* ih, const char* value)
 char* iupCocoaCommonBaseGetLayerBackedAttrib(Ihandle* ih)
 {
 	id the_object = ih->handle;
-	NSView* main_view = iupCocoaGetRootView(ih);
-	if(nil != main_view)
+
+	/* The root view, to match the setter: it layer-backs the whole widget, so for a wrapped
+	   control -- a scroll view around a canvas, a list or a multiline text -- the outermost
+	   view is the one that answers for all of them. Named for what it holds; it used to be
+	   called main_view while holding the root, which is how the two came to disagree. */
+	NSView* root_view = iupCocoaGetRootView(ih);
+	if(nil != root_view)
 	{
-		BOOL is_enabled = [main_view wantsLayer];
+		BOOL is_enabled = [root_view wantsLayer];
 		return iupStrReturnBoolean(is_enabled);
 	}
 	else if([the_object respondsToSelector:@selector(wantsLayer)])

@@ -202,6 +202,32 @@ static int run(Ihandle* t)
     chk(sv != nil && [sv hasVerticalScroller],
         "it is backed by an NSScrollView with real scrollers", buf); }
 
+  /* LAYERBACKED has to reach the whole widget, and has to read back. A wrapped control -- this
+     canvas, a list, a multiline IupText -- hands back an NSScrollView with the real view inside
+     it. The setter layer-backed only the inner view, because it asked for the main view twice
+     and so never found a different root to also set; the getter meanwhile read the root. The
+     attribute could therefore be set and read straight back as NO, with the scroll view still
+     drawing the old way -- which is what the focus-ring corruption this exists to avoid comes
+     from. Both views are asserted, and so is the round-trip. */
+  { NSScrollView* sv = [(id)canvas->handle isKindOfClass:[NSScrollView class]]
+                       ? (NSScrollView*)canvas->handle : nil;
+    /* the drawing view, which is a subview of the scroll view's document view rather than the
+       document view itself -- the canvas builds NSScrollView -> container -> canvas view */
+    NSView* drawing = [[[sv documentView] subviews] firstObject];
+    char* back;
+
+    IupSetAttribute(canvas, "LAYERBACKED", "YES");
+    back = IupGetAttribute(canvas, "LAYERBACKED");
+
+    snprintf(buf, sizeof buf, "scroll view=%s, %s=%s, IUP reads \"%s\"",
+             (sv && [sv wantsLayer]) ? "yes" : "no",
+             drawing ? [[drawing className] UTF8String] : "drawing view",
+             (drawing && [drawing wantsLayer]) ? "yes" : "no",
+             back ? back : "(null)");
+    chk(sv && drawing && [sv wantsLayer] && [drawing wantsLayer]
+        && back && (0 == strcmp(back, "YES") || 0 == strcmp(back, "Yes")),
+        "LAYERBACKED reaches the wrapper and reads back", buf); }
+
   /* IupRedraw has to reach the view that actually draws. A canvas with scrollbars hands back
      its NSScrollView, and the drawing view is nested inside it, so marking the scroll view
      dirty invalidates nothing -- an application drawing between redraws (simple_paint's pencil
