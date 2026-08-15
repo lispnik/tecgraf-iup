@@ -226,6 +226,23 @@ static void cocoaGLCanvasAttachView(Ihandle* ih, IGlControlData* gldata)
 	}
 
 	gldata->view = canvas_view;
+
+	/* Keep the GL surface the same size as the canvas IUP reports.
+
+	   AppKit gives a GL surface the window's backing resolution, so on a retina display the
+	   drawable is twice the view in each direction -- while RESIZE_CB, DRAWSIZE and every other
+	   size IUP hands out are in points, because that is what IUP means by a pixel everywhere
+	   else and what the Windows and GTK drivers report. An application doing the ordinary thing,
+	   glViewport(0, 0, w, h) with the size RESIZE_CB just gave it, therefore drew into the
+	   bottom-left QUARTER of its canvas: glcanvas_cube and mathglsamples both did, and MathGL's
+	   plots looked like they refused to fill their windows.
+
+	   Matching the surface to points keeps that code correct, at the cost of the window server
+	   scaling the result up on a retina display. The alternative -- a full-resolution surface --
+	   cannot be had without every existing application learning a second size, which is not a
+	   trade IUP's own contract allows. */
+	[canvas_view setWantsBestResolutionOpenGLSurface:NO];
+
 	[gldata->context setView:canvas_view];
 	gldata->is_attached = 1;
 

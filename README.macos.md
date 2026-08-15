@@ -87,6 +87,15 @@ the failure mode this backend had.
   itself as `2.1 Metal` in the legacy profile, and warns at build time. A core profile is
   available through `CONTEXTPROFILE=CORE`, but it is strictly core — the fixed-function
   pipeline most IUP samples use is not in it.
+- **A GL canvas renders at point resolution, not the display's.** AppKit gives a GL surface the
+  window's backing resolution, which on a retina display is twice the view in each direction --
+  but `RESIZE_CB`, `DRAWSIZE` and every other size IUP hands out are in points, as they are on
+  Windows and GTK. An application doing the ordinary `glViewport(0, 0, w, h)` with the size
+  `RESIZE_CB` gave it was therefore drawing into the bottom-left *quarter* of its canvas;
+  `glcanvas_cube` and `mathglsamples` both did, and MathGL's plots looked as though they would
+  not fill their windows. `srcgl/iup_glcanvas_cocoa.m` now clears
+  `wantsBestResolutionOpenGLSurface`, so the surface matches the sizes IUP reports and existing
+  code is correct. The cost is that the window server scales GL output up on a retina display.
 - **`IupGLUseFont` and `IupGLPalette` do nothing** and set `ERROR`. The first needed
   `aglUseFont`, which Apple removed and never replaced; the second needs index-colour
   visuals, which macOS OpenGL has never had. IupGLControls draws its own text via FTGL and
