@@ -614,10 +614,30 @@ void iupdrvBaseUnMapMethod(Ihandle* ih)
 	[the_handle release];
 }
 
+/* Declared so this file can ask a scroll view for the canvas inside it; the class itself is
+   private to iupcocoa_canvas.m, and every call is guarded by respondsToSelector:. */
+@interface NSObject (IupCocoaCanvasScrollViewAccessor)
+- (NSView*) iupCanvasView;
+@end
+
 static void iupCocoaDisplayUpdate(Ihandle *ih)
 {
 	id the_handle = ih->handle;
-	
+
+	/* A canvas with scrollbars hands back its NSScrollView, and the view that actually draws is
+	   nested inside it. Marking the scroll view dirty does not invalidate that subview, so a
+	   redraw requested this way never happened -- which is why drawing into a scrollable canvas
+	   only appeared once something else forced a full redraw, such as resizing the window. */
+	if([the_handle respondsToSelector:@selector(iupCanvasView)])
+	{
+		NSView* drawing_view = [the_handle iupCanvasView];
+		if(nil != drawing_view)
+		{
+			[drawing_view setNeedsDisplay:YES];
+			return;
+		}
+	}
+
 	if([the_handle isKindOfClass:[NSView class]])
 	{
 		NSView* the_view = (NSView*)the_handle;

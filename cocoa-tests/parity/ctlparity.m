@@ -16,6 +16,9 @@
 
 static int g_gaps = 0;
 static Ihandle *dlg, *canvas, *val, *pbar, *marquee_bar, *tabs, *tab1, *tab2;
+static int g_canvas_draws = 0;
+static int canvas_action_cb(Ihandle* ih, float x, float y)
+{ (void)ih; (void)x; (void)y; g_canvas_draws++; return IUP_DEFAULT; }
 
 static void chk(int c, const char* w, const char* g)
 { printf("%-4s %-52s %s\n", c ? "ok  " : "GAP ", w, g ? g : ""); fflush(stdout); if (!c) g_gaps++; }
@@ -199,6 +202,18 @@ static int run(Ihandle* t)
     chk(sv != nil && [sv hasVerticalScroller],
         "it is backed by an NSScrollView with real scrollers", buf); }
 
+  /* IupRedraw has to reach the view that actually draws. A canvas with scrollbars hands back
+     its NSScrollView, and the drawing view is nested inside it, so marking the scroll view
+     dirty invalidates nothing -- an application drawing between redraws (simple_paint's pencil
+     does exactly this) saw nothing until something else forced a full redraw, such as resizing
+     the window. */
+  { int before = g_canvas_draws;
+    IupRedraw(canvas, 0);
+    /* let AppKit service the invalidation the way it would between events */
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.2]];
+    snprintf(buf, sizeof buf, "ACTION ran %d time(s) after IupRedraw", g_canvas_draws - before);
+    chk(g_canvas_draws > before, "IupRedraw repaints a scrolled canvas", buf); }
+
   { IupSetAttribute(canvas, "XMIN", "0");
     IupSetAttribute(canvas, "XMAX", "1000");
     IupSetAttribute(canvas, "DX", "100");
@@ -218,6 +233,7 @@ int main(int argc, char** argv)
   canvas = IupCanvas(NULL);
   IupSetAttribute(canvas, "SCROLLBAR", "YES");
   IupSetAttribute(canvas, "RASTERSIZE", "150x100");
+  IupSetCallback(canvas, "ACTION", (Icallback)canvas_action_cb);
 
   val = IupVal("HORIZONTAL");
   pbar = IupProgressBar();
