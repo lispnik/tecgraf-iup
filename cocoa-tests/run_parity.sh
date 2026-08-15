@@ -21,7 +21,7 @@ fi
 
 NAMES=("$@")
 if [ ${#NAMES[@]} -eq 0 ]; then
-  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity plotexport filedlg nativestate)
+  NAMES=(labelparity labelcb btnparity togparity frmparity lstparity menuparity keyparity enterleave miscattrib dlgsize imglib drawimage glcanvas textparity mattree dlgattrib ctlparity plotexport filedlg nativestate mglrender)
 fi
 
 status=0
@@ -44,6 +44,15 @@ for name in "${NAMES[@]}"; do
     # ...and the same per-symbol stubs the samples link, for the CD drivers macOS has no
     # implementation of (PS, CGM). Note this deliberately no longer stubs cdContextPDF.
     EXTRA=("$PLOTLIB" "$FW/extra/sample_link_stubs.o" -lc++ -I"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/include")
+  fi
+
+  # IupMglPlot ships the same way -- a static archive with MathGL compiled into it.
+  if [ "$name" = mglrender ]; then
+    MGLLIB=$FW/extra/mgl/libiup_mglplot.a
+    if [ ! -e "$MGLLIB" ]; then
+      echo "=== $name: SKIPPED (run build_apps.sh first to build $MGLLIB)"; continue
+    fi
+    EXTRA=("$MGLLIB" "$FW/extra/sample_link_stubs.o" -lc++ -lz -lpng -L"$(brew --prefix 2>/dev/null || echo /opt/homebrew)/lib")
   fi
 
   # ${EXTRA[@]+...} because bash 3.2 -- which is what /bin/bash is on macOS -- treats an empty

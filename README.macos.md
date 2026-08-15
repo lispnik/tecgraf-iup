@@ -59,9 +59,15 @@ this one. Use `IUP_ZoomIn` / `IUP_ZoomOut` / `IUP_ZoomActualSize` / `IUP_ZoomSel
 
 ## Tests
 
-    cocoa-tests/run_gates.sh    # everything below, plus CD's and ImLab's suites
-    cocoa-tests/sweep.sh        # launch every built sample, report pass/fail
-    cocoa-tests/run_parity.sh   # per-control parity harnesses
+    cocoa-tests/run_gates.sh      # everything below, plus CD's and ImLab's suites
+    cocoa-tests/sweep.sh          # launch every built sample, report pass/fail
+    cocoa-tests/run_parity.sh     # per-control parity harnesses
+    cocoa-tests/run_mglsample.sh  # what the IupMglPlot sample actually renders
+
+`run_mglsample.sh` is the odd one out: it drives the real `mglplot` sample rather than a
+purpose-built harness, because the failure it guards — MathGL's geometry being clipped away in
+OpenGL mode — only reproduces with the plots the sample builds. Every synthetic stand-in tried
+(line, bars, crossed origin, tall canvas, inside tabs) rendered correctly either way.
 
 `run_gates.sh` drives all four repositories, because they are built against each other and a
 regression in one shows up as a mystery in another -- a CD driver change as a plot that will not
@@ -99,6 +105,17 @@ the failure mode this backend had.
 - **Scintilla is not built**, so the `scintilla` sample does not build. MathGL is built:
   `srcmglplot` vendors the library, and `cocoa-tests/build_apps.sh` compiles it into
   `libiup_mglplot.a`, so `mglplot`, `mathglsamples` and `mgllabel` all run.
+- **MathGL's OpenGL canvas needed two corrections, both in `srcmglplot/iup_mglplot.cpp`.** They
+  are worth knowing about because both are in MathGL's own design rather than in the backend:
+  its `mglCanvasGL` builds a projection out of identity, scale and rotation only, so the clip
+  volume keeps OpenGL's default z range of [-1,1] while its model transform maps a plot's z
+  onto exactly that range — flat geometry lands *on* the near plane and its own primitives
+  reach z=3, so nearly everything was clipped (a bar chart drew nothing; a line plot kept only
+  its legend). `iMglPlotWidenGLClipDepth` compresses clip z, and only clip z, before the
+  geometry is submitted. Separately, `iMglPlotRepaint` used to skip the render when nothing had
+  changed and swap anyway; a swapped back buffer has undefined contents, so that put the frame
+  before last — or nothing — on screen, which is what made plots blank and reappear while
+  clicking through tabs. In GL mode anything that reaches the screen is now drawn first.
 - **Menu accelerators map `Ctrl` to the literal Control key**, not Command. An application
   declaring `Ctrl+A` therefore claims ⌃A application-wide, which is also macOS's standard
   emacs binding for move-to-line-start inside a text field.

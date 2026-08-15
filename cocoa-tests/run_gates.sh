@@ -2,7 +2,7 @@
 # Runs every test suite across the four Tecgraf repositories.
 #
 #   usage: run_gates.sh [suite ...]        (default: all of them)
-#          suites: cd iup-sweep iup-parity imlab
+#          suites: cd iup-sweep iup-parity iup-mgl imlab
 #
 # These libraries are built against each other, so a regression in one shows up as a mystery in
 # another: a CD driver change surfaces as a plot that will not draw, an IUP change as an ImLab
@@ -26,7 +26,7 @@ IMLAB=${IMLAB:-$WORKSPACE/tecgraf-imlab}
 
 SUITES=("$@")
 if [ ${#SUITES[@]} -eq 0 ]; then
-  SUITES=(cd iup-sweep iup-parity imlab)
+  SUITES=(cd iup-sweep iup-parity iup-mgl imlab)
 fi
 
 status=0
@@ -93,6 +93,19 @@ for suite in "${SUITES[@]}"; do
         note "IUP parity" "ok" "$harnesses harnesses, $assertions assertions"
       else
         note "IUP parity" "FAILED" "$gaps gap(s)"
+      fi
+      ;;
+
+    iup-mgl)
+      echo "=== IupMglPlot sample"
+      out=$("$IUP/cocoa-tests/run_mglsample.sh" 2>&1)
+      echo "$out" | grep -E "^(ok|FAIL)|failure\(s\)|SKIPPED"
+      if echo "$out" | grep -q "SKIPPED"; then
+        note "IupMglPlot" "skipped" "sample not built"
+      elif echo "$out" | grep -q "^0 failure"; then
+        note "IupMglPlot" "ok" "$(echo "$out" | grep -cE '^ok') tabs render"
+      else
+        note "IupMglPlot" "FAILED" "$(echo "$out" | grep -cE '^FAIL') tab(s) blank"
       fi
       ;;
 

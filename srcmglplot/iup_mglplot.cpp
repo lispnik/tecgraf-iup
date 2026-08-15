@@ -1755,6 +1755,35 @@ static void iMglPlotDrawPlot(Ihandle* ih, mglGraph *gr)
   iupAttribSet(ih, "_IUP_MGLPLOT_GRAPH", NULL);
 }
 
+/* MathGL's OpenGL canvas builds its projection from nothing but identity, scale and rotation
+   (mglCanvasGL::Zoom and ::View, src/opengl.cpp), so the clip volume keeps OpenGL's default z
+   range of [-1,1] -- while the model transform its Clf installs, glScaled(2,2,2) after
+   glTranslated(-0.5,...), maps a plot's z of 0..1 onto exactly that range, putting flat
+   geometry ON the near plane, and its own primitives reach z=3, well past the far one. Nearly
+   everything was therefore clipped away: a 2D plot kept its legend and lost its axes, its
+   labels and its curves, and one sample tab drew nothing whatsoever.
+
+   Compress clip z, and only clip z. The scale is applied BEFORE the matrix MathGL built, so it
+   acts last, on clip coordinates: x and y -- and with them the framing, the aspect ratio and
+   the zoom -- come through untouched, and only the range of z that survives is widened, by ten
+   times in each direction. Depth ordering is preserved, and a 24-bit depth buffer has
+   precision to spare for the compression.
+
+   This runs after the plot has been composed and before MathGL submits it, because the
+   projection is rebuilt on every frame (iMglPlotConfigView calls Zoom), which is also what
+   keeps this from accumulating. */
+static void iMglPlotWidenGLClipDepth(void)
+{
+  double projection[16];
+
+  glMatrixMode(GL_PROJECTION);
+  glGetDoublev(GL_PROJECTION_MATRIX, projection);
+  glLoadIdentity();
+  glScaled(1.0, 1.0, 0.1);
+  glMultMatrixd(projection);
+  glMatrixMode(GL_MODELVIEW);
+}
+
 static void iMglPlotRepaint(Ihandle* ih, int force, int flush)
 {
   if (!IupGLIsCurrent(ih))
@@ -1773,12 +1802,25 @@ static void iMglPlotRepaint(Ihandle* ih, int force, int flush)
     force = 1;
   }
 
+  /* A GL canvas keeps its picture in the back buffer, and swapping it makes its contents
+     undefined -- so there is nothing to show a second time. Skipping the render and swapping
+     anyway put whichever buffer came round on screen: the frame before last, or nothing at
+     all. That is what made a plot blank on one expose and reappear on the next, most visibly
+     when clicking through tabs. Anything that reaches the screen in GL mode must be drawn
+     first. The software path is not affected -- it re-uploads the rendered image with
+     glDrawPixels below, so its picture survives the swap. */
+  if (ih->data->opengl && flush)
+    force = 1;
+
   mglGraph* gr = ih->data->mgl;
 
   if (force || ih->data->redraw)
   {
     /* update render */
     iMglPlotDrawPlot(ih, gr);  /* Draw the graphics plot */
+
+    if (ih->data->opengl)
+      iMglPlotWidenGLClipDepth();
 
     gr->Finish();
     ih->data->redraw = false;
