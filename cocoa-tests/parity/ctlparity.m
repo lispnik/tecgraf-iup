@@ -214,6 +214,23 @@ static int run(Ihandle* t)
     snprintf(buf, sizeof buf, "ACTION ran %d time(s) after IupRedraw", g_canvas_draws - before);
     chk(g_canvas_draws > before, "IupRedraw repaints a scrolled canvas", buf); }
 
+  /* IupRedraw promises "now" and IupUpdate promises "later" -- Windows passes RDW_UPDATENOW
+     for one and posts the other, GTK processes updates for one and queues the other. Here both
+     merely marked the view dirty, so an application drawing inside a loop without returning to
+     the event loop saw nothing until it finished. The difference is only observable before
+     going back to the run loop, so this checks it there. */
+  { int before = g_canvas_draws;
+    IupUpdate(canvas);
+    snprintf(buf, sizeof buf, "ACTION ran %d time(s) before returning to the loop",
+             g_canvas_draws - before);
+    chk(g_canvas_draws == before, "IupUpdate queues the redraw rather than doing it", buf); }
+
+  { int before = g_canvas_draws;
+    IupRedraw(canvas, 0);
+    snprintf(buf, sizeof buf, "ACTION ran %d time(s) before returning to the loop",
+             g_canvas_draws - before);
+    chk(g_canvas_draws > before, "IupRedraw draws before it returns", buf); }
+
   { IupSetAttribute(canvas, "XMIN", "0");
     IupSetAttribute(canvas, "XMAX", "1000");
     IupSetAttribute(canvas, "DX", "100");

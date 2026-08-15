@@ -616,21 +616,48 @@ void iupdrvBaseUnMapMethod(Ihandle* ih)
 
 /* Declared so this file can ask a scroll view for the canvas inside it; the class itself is
    private to iupcocoa_canvas.m, and every call is guarded by respondsToSelector:. */
-@interface NSObject (IupCocoaCanvasScrollViewAccessor)
+/* Declared so this file can ask a scroll view for the canvas inside it, and ask that canvas
+   whether it is mid-draw; both classes are private to iupcocoa_canvas.m, and every call is
+   guarded by respondsToSelector:. Without a declaration the compiler assumes a method returns
+   id, which is the wrong register to read a bool out of. */
+@interface NSObject (IupCocoaCanvasAccessors)
 - (NSView*) iupCanvasView;
+- (bool) iupInsideDrawRect;
 @end
+
+/* The view that actually draws for this control.
+
+   A canvas with scrollbars hands back its NSScrollView, and the drawing view is nested inside
+   it. Marking the scroll view dirty does not invalidate that subview, so a redraw requested
+   that way never happened -- which is why drawing into a scrollable canvas only appeared once
+   something else forced a full redraw, such as resizing the window. */
+static NSView* iupCocoaGetDrawingView(Ihandle *ih)
+{
+	id the_handle = ih->handle;
+
+	if([the_handle respondsToSelector:@selector(iupCanvasView)])
+	{
+		NSView* drawing_view = [the_handle iupCanvasView];
+		if(nil != drawing_view)
+		{
+			return drawing_view;
+		}
+	}
+
+	if([the_handle isKindOfClass:[NSView class]])
+	{
+		return (NSView*)the_handle;
+	}
+
+	return nil;
+}
 
 static void iupCocoaDisplayUpdate(Ihandle *ih)
 {
 	id the_handle = ih->handle;
 
-	/* A canvas with scrollbars hands back its NSScrollView, and the view that actually draws is
-	   nested inside it. Marking the scroll view dirty does not invalidate that subview, so a
-	   redraw requested this way never happened -- which is why drawing into a scrollable canvas
-	   only appeared once something else forced a full redraw, such as resizing the window. */
-	if([the_handle respondsToSelector:@selector(iupCanvasView)])
 	{
-		NSView* drawing_view = [the_handle iupCanvasView];
+		NSView* drawing_view = iupCocoaGetDrawingView(ih);
 		if(nil != drawing_view)
 		{
 			[drawing_view setNeedsDisplay:YES];
@@ -962,7 +989,31 @@ void iupdrvPostRedraw(Ihandle *ih)
 
 void iupdrvRedrawNow(Ihandle *ih)
 {
+	NSView* drawing_view;
+
 	iupCocoaDisplayUpdate(ih);
+
+	/* "Now" is the whole difference between this and iupdrvPostRedraw, and it was not being
+	   honoured: both merely marked the view dirty and left the drawing to whenever AppKit next
+	   got around to it. Windows passes RDW_UPDATENOW here and GTK calls
+	   gdk_window_process_updates, so an application that draws inside a loop -- updating a
+	   progress display without returning to the event loop -- sees nothing at all here while it
+	   works on the other platforms. */
+	drawing_view = iupCocoaGetDrawingView(ih);
+	if(nil == drawing_view)
+	{
+		return;
+	}
+
+	/* Not from inside the view's own draw cycle: a control redrawing itself from its ACTION
+	   callback would re-enter drawRect: through this. */
+	if([drawing_view respondsToSelector:@selector(iupInsideDrawRect)]
+	   && [(id)drawing_view iupInsideDrawRect])
+	{
+		return;
+	}
+
+	[drawing_view displayIfNeeded];
 }
 void iupdrvSendKey(int key, int press)
 {
