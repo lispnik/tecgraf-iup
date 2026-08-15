@@ -59,8 +59,15 @@ this one. Use `IUP_ZoomIn` / `IUP_ZoomOut` / `IUP_ZoomActualSize` / `IUP_ZoomSel
 
 ## Tests
 
+    cocoa-tests/run_gates.sh    # everything below, plus CD's and ImLab's suites
     cocoa-tests/sweep.sh        # launch every built sample, report pass/fail
     cocoa-tests/run_parity.sh   # per-control parity harnesses
+
+`run_gates.sh` drives all four repositories, because they are built against each other and a
+regression in one shows up as a mystery in another -- a CD driver change as a plot that will not
+draw, an IUP change as an ImLab dialog that does nothing. It takes suite names to run just
+one (`run_gates.sh cd`), and expects the repositories side by side; `CD` and `IMLAB` in the
+environment override where it looks.
 
 Both exit non-zero on failure. `cocoa-tests/README.md` explains why the harnesses assert
 against **native** state rather than `IupGetAttribute` — an attribute with no registered
